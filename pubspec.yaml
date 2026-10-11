@@ -1,0 +1,19 @@
+name: local_flutter_builder
+description: A fully local visual editor for Flutter application prototypes.
+publish_to: none
+version: 0.1.0
+
+environment:
+  sdk: '>=3.7.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  provider: 6.1.5
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true
