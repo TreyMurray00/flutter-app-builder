@@ -401,7 +401,9 @@ class _InspectorPanelState extends State<InspectorPanel> {
     }
 
     final bool supportsNodeModifiers =
-        !<String>{'appBar', 'floatingActionButton'}.contains(node.type);
+        !<String>{'appBar', 'floatingActionButton', 'expanded'}.contains(
+          node.type,
+        );
     if (supportsNodeModifiers) {
       add(
         'Visibility',
@@ -425,6 +427,7 @@ class _InspectorPanelState extends State<InspectorPanel> {
       'scaffold',
       'appBar',
       'floatingActionButton',
+      'expanded',
     }.contains(node.type)) {
       add(
         'Responsive sizing',
@@ -449,6 +452,31 @@ class _InspectorPanelState extends State<InspectorPanel> {
         'Decoration',
         'radius corner fill background color',
         _containerStyleProperties(node),
+      );
+    }
+    if (node.type == 'safeArea') {
+      add(
+        'Safe Area',
+        'top bottom left right minimum inset padding system bars',
+        _safeAreaProperties(node),
+        expanded: true,
+      );
+    }
+    if (node.type == 'expanded') {
+      add(
+        'Flex',
+        'flex factor expanded row column',
+        _expandedProperties(node),
+        expanded: true,
+      );
+    }
+    if ((node.type == 'safeArea' || node.type == 'expanded') &&
+        node.children.isNotEmpty) {
+      add(
+        'Children',
+        'nested child objects layout',
+        _childrenSummary(node),
+        expanded: true,
       );
     }
     if (node.type == 'card') {
@@ -979,6 +1007,38 @@ class _InspectorPanelState extends State<InspectorPanel> {
       value: node.properties['loop'] == true,
       onChanged: (bool value) => widget.onSetProperty(node.id, 'loop', value),
     ),
+  ];
+
+  List<Widget> _safeAreaProperties(BuilderNode node) => <Widget>[
+    for (final (String, String) edge in const <(String, String)>[
+      ('top', 'Top'),
+      ('bottom', 'Bottom'),
+      ('left', 'Left'),
+      ('right', 'Right'),
+    ])
+      SwitchListTile.adaptive(
+        key: ValueKey<String>('${node.id}-safe-${edge.$1}'),
+        contentPadding: EdgeInsets.zero,
+        dense: true,
+        title: Text(edge.$2, style: const TextStyle(fontSize: 11)),
+        value: node.properties[edge.$1] != false,
+        onChanged:
+            (bool value) => widget.onSetProperty(node.id, edge.$1, value),
+      ),
+    _numberField(node, 'minimum', label: 'Minimum inset', fallback: 0),
+  ];
+
+  List<Widget> _expandedProperties(BuilderNode node) => <Widget>[
+    Text(
+      'Expanded fills the remaining space in a Row or Column.',
+      style: TextStyle(
+        color: EditorPalette.mutedText(context),
+        fontSize: 11,
+        height: 1.4,
+      ),
+    ),
+    const SizedBox(height: 10),
+    _integerField(node, 'flex', label: 'Flex factor', fallback: 1),
   ];
 
   List<Widget> _imageProperties(BuilderNode node) => <Widget>[
@@ -3506,6 +3566,34 @@ class _InspectorPanelState extends State<InspectorPanel> {
     ],
   );
 
+  Widget _integerField(
+    BuilderNode node,
+    String property, {
+    required String label,
+    required int fallback,
+    int max = 100,
+  }) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: <Widget>[
+      _fieldLabel(label),
+      const SizedBox(height: 5),
+      TextField(
+        key: ValueKey<String>('${node.id}-$property'),
+        controller: _controllerFor(node, property, fallback: fallback),
+        keyboardType: TextInputType.number,
+        textAlign: TextAlign.center,
+        style: const TextStyle(fontSize: 11),
+        onChanged: (String value) {
+          final int? parsed = int.tryParse(value);
+          if (parsed != null) {
+            widget.onSetProperty(node.id, property, parsed.clamp(1, max));
+          }
+        },
+        decoration: _inputDecoration(),
+      ),
+    ],
+  );
+
   Widget _compactNumberField(
     BuilderNode node,
     String property, {
@@ -3635,12 +3723,15 @@ class _InspectorPanelState extends State<InspectorPanel> {
     _ => 'L',
   };
 
-  int _integer(Object? value, int fallback) => value is int ? value : fallback;
+  int _integer(Object? value, int fallback) =>
+      value is num && value.isFinite ? value.round() : fallback;
 
   String _typeLabel(String type) => switch (type) {
     'scaffold' => 'Scaffold',
     'column' => 'Column',
     'row' => 'Row',
+    'expanded' => 'Expanded',
+    'safeArea' => 'Safe Area',
     'container' => 'Container',
     'stack' => 'Stack',
     'listView' => 'ListView',

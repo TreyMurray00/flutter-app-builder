@@ -27,9 +27,21 @@ const List<WidgetCatalogItem> widgetCatalog = <WidgetCatalogItem>[
     WidgetCategory.layout,
   ),
   WidgetCatalogItem(
+    'expanded',
+    'Expanded',
+    Icons.open_in_full,
+    WidgetCategory.layout,
+  ),
+  WidgetCatalogItem(
     'column',
     'Column',
     Icons.view_column_outlined,
+    WidgetCategory.layout,
+  ),
+  WidgetCatalogItem(
+    'safeArea',
+    'Safe Area',
+    Icons.crop_free,
     WidgetCategory.layout,
   ),
   WidgetCatalogItem(

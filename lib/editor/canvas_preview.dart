@@ -35,6 +35,10 @@ class CanvasPreview extends StatelessWidget {
     this.variableValues = const <String, Object?>{},
     this.widgetOverrides = const <String, Map<String, Object?>>{},
     this.projectPath,
+    this.transformationController,
+    this.viewportKey,
+    this.panEnabled = false,
+    this.onInteractionEnd,
     super.key,
   });
 
@@ -49,6 +53,10 @@ class CanvasPreview extends StatelessWidget {
   final Map<String, Object?> variableValues;
   final Map<String, Map<String, Object?>> widgetOverrides;
   final String? projectPath;
+  final TransformationController? transformationController;
+  final GlobalKey? viewportKey;
+  final bool panEnabled;
+  final VoidCallback? onInteractionEnd;
   final void Function(
     EditorDragData data,
     String targetId,
@@ -109,40 +117,59 @@ class CanvasPreview extends StatelessWidget {
                   child: SizedBox(
                     width: width,
                     height: height,
-                    child: FittedBox(
-                      fit: BoxFit.contain,
-                      child: RepaintBoundary(
-                        child: Container(
-                          width: size.width,
-                          height: size.height,
-                          clipBehavior: Clip.antiAlias,
-                          decoration: BoxDecoration(
-                            color: previewTheme.scaffoldBackgroundColor,
-                            borderRadius: BorderRadius.circular(
-                              phoneFrame ? 28 : 14,
+                    child: InteractiveViewer(
+                      key: viewportKey,
+                      transformationController: transformationController,
+                      minScale: .5,
+                      maxScale: 4,
+                      boundaryMargin: const EdgeInsets.all(4096),
+                      panEnabled: panEnabled,
+                      scaleEnabled: true,
+                      onInteractionEnd: (_) => onInteractionEnd?.call(),
+                      // Ctrl+scroll is handled by the editor; prevent the
+                      // viewer's default unmodified wheel zoom.
+                      scaleFactor: double.maxFinite,
+                      trackpadScrollCausesScale: false,
+                      child: FittedBox(
+                        fit: BoxFit.contain,
+                        child: RepaintBoundary(
+                          child: Container(
+                            width: size.width,
+                            height: size.height,
+                            clipBehavior: Clip.antiAlias,
+                            decoration: BoxDecoration(
+                              color: previewTheme.scaffoldBackgroundColor,
+                              borderRadius: BorderRadius.circular(
+                                phoneFrame ? 28 : 14,
+                              ),
+                              border: Border.all(
+                                color: const Color(0xFFD8DBE4),
+                              ),
+                              boxShadow: const <BoxShadow>[
+                                BoxShadow(
+                                  color: Color(0x160F172A),
+                                  blurRadius: 24,
+                                  offset: Offset(0, 10),
+                                ),
+                              ],
                             ),
-                            border: Border.all(color: const Color(0xFFD8DBE4)),
-                            boxShadow: const <BoxShadow>[
-                              BoxShadow(
-                                color: Color(0x160F172A),
-                                blurRadius: 24,
-                                offset: Offset(0, 10),
+                            child: MediaQuery(
+                              data: MediaQuery.of(context).copyWith(
+                                size: Size(size.width, size.height),
                               ),
-                            ],
-                          ),
-                          child: MediaQuery(
-                            data: MediaQuery.of(
-                              context,
-                            ).copyWith(size: Size(size.width, size.height)),
-                            child: KeyedSubtree(
-                              key: ValueKey<String>(
-                                'preview-page-$activePageId',
-                              ),
-                              child: Theme(
-                                data: previewTheme,
-                                child: Material(
-                                  color: previewTheme.scaffoldBackgroundColor,
-                                  child: _renderNode(_previewRoot),
+                              child: KeyedSubtree(
+                                key: ValueKey<String>(
+                                  'preview-page-$activePageId',
+                                ),
+                                child: Theme(
+                                  data: previewTheme,
+                                  child: Material(
+                                    color: previewTheme.scaffoldBackgroundColor,
+                                    child: IgnorePointer(
+                                      ignoring: panEnabled,
+                                      child: _renderNode(_previewRoot),
+                                    ),
+                                  ),
                                 ),
                               ),
                             ),
@@ -205,6 +232,21 @@ class CanvasPreview extends StatelessWidget {
             node.properties['crossAxisAlignment'],
           ),
           children: node.children.map(_renderNode).toList(),
+        );
+        break;
+      case 'expanded':
+        content = _childrenWidget(node.children);
+        break;
+      case 'safeArea':
+        content = SafeArea(
+          top: node.properties['top'] != false,
+          bottom: node.properties['bottom'] != false,
+          left: node.properties['left'] != false,
+          right: node.properties['right'] != false,
+          minimum: EdgeInsets.all(
+            _number(node.properties['minimum'], 0, 0, 1200),
+          ),
+          child: _childrenWidget(node.children),
         );
         break;
       case 'container':
@@ -538,9 +580,12 @@ class CanvasPreview extends StatelessWidget {
         break;
     }
 
+    final bool isExpanded = node.type == 'expanded';
     Widget laidOutContent = content;
-    final double? widthFactor = _sizeFactor(node.properties['widthMode']);
-    final double? heightFactor = _sizeFactor(node.properties['heightMode']);
+    final double? widthFactor =
+        isExpanded ? null : _sizeFactor(node.properties['widthMode']);
+    final double? heightFactor =
+        isExpanded ? null : _sizeFactor(node.properties['heightMode']);
     if (widthFactor != null || heightFactor != null) {
       final Widget sizeChild = laidOutContent;
       laidOutContent = LayoutBuilder(
@@ -564,7 +609,8 @@ class CanvasPreview extends StatelessWidget {
             ),
       );
     }
-    if (node.type != 'container' &&
+    if (!isExpanded &&
+        node.type != 'container' &&
         node.type != 'padding' &&
         _hasInsets(node, 'padding')) {
       laidOutContent = Padding(
@@ -572,17 +618,18 @@ class CanvasPreview extends StatelessWidget {
         child: laidOutContent,
       );
     }
-    final double opacity = _number(node.properties['opacity'], 1, 0, 1);
+    final double opacity =
+        isExpanded ? 1 : _number(node.properties['opacity'], 1, 0, 1);
     if (opacity < 1) {
       laidOutContent = Opacity(opacity: opacity, child: laidOutContent);
     }
-    if (_hasInsets(node, 'margin')) {
+    if (!isExpanded && _hasInsets(node, 'margin')) {
       laidOutContent = Padding(
         padding: _edgeInsets(node, 'margin'),
         child: laidOutContent,
       );
     }
-    if (node.properties['visible'] == false) {
+    if (!isExpanded && node.properties['visible'] == false) {
       laidOutContent = Visibility(visible: false, child: laidOutContent);
     }
 
@@ -594,8 +641,8 @@ class CanvasPreview extends StatelessWidget {
       child: laidOutContent,
     );
 
-    Widget withSelectionBorder(bool isDropTarget) => DecoratedBox(
-      decoration: BoxDecoration(
+    Widget withSelectionBorder(bool isDropTarget) {
+      final BoxDecoration decoration = BoxDecoration(
         border:
             selected || isDropTarget
                 ? Border.all(
@@ -606,18 +653,35 @@ class CanvasPreview extends StatelessWidget {
                   width: 2,
                 )
                 : null,
-      ),
-      child: selectableContent,
-    );
+      );
+      if (isExpanded) {
+        return Expanded(
+          flex: _integer(node.properties['flex'], 1).clamp(1, 100).toInt(),
+          child: DecoratedBox(
+            decoration: decoration,
+            child: GestureDetector(
+              key: ValueKey<String>('preview-node-$activePageId-${node.id}'),
+              behavior: HitTestBehavior.translucent,
+              onTap: () => onSelect(node.id),
+              child: laidOutContent,
+            ),
+          ),
+        );
+      }
+      return DecoratedBox(decoration: decoration, child: selectableContent);
+    }
 
     if (!node.acceptsChildren) return withSelectionBorder(false);
     return DragTarget<EditorDragData>(
       onWillAcceptWithDetails: (DragTargetDetails<EditorDragData> details) {
         final EditorDragData data = details.data;
-        if (data is PaletteObjectDrag) return true;
+        if (data is PaletteObjectDrag) {
+          return node.canAcceptChildType(data.type);
+        }
         if (data case ExistingObjectDrag(:final nodeId)) {
           final BuilderNode? draggedNode = _previewRoot.findById(nodeId);
           return draggedNode != null &&
+              node.canAcceptChild(draggedNode) &&
               nodeId != node.id &&
               !draggedNode.depthFirst().any(
                 (BuilderNode descendant) => descendant.id == node.id,

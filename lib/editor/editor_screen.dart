@@ -1,9 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:file_selector/file_selector.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../models/builder_action.dart';
@@ -29,7 +32,15 @@ class EditorScreen extends StatefulWidget {
 }
 
 class _EditorScreenState extends State<EditorScreen> {
+  static const int _minPreviewZoomPercent = 50;
+  static const int _maxPreviewZoomPercent = 400;
+
   PreviewSize _previewSize = PreviewSize.phone;
+  int _previewZoomPercent = 100;
+  final TransformationController _previewTransformationController =
+      TransformationController();
+  final GlobalKey _previewViewportKey = GlobalKey();
+  bool _isControlPressed = false;
   bool _working = false;
   bool _showPalette = true;
   bool _showInspector = true;
@@ -37,6 +48,115 @@ class _EditorScreenState extends State<EditorScreen> {
   EditorController? _observedEditor;
   Timer? _autosaveTimer;
   Future<void>? _autosaveInFlight;
+
+  @override
+  void initState() {
+    super.initState();
+    _previewTransformationController.addListener(_syncPreviewZoomPercent);
+    GestureBinding.instance.pointerRouter.addGlobalRoute(
+      _handlePreviewPointerEvent,
+    );
+    HardwareKeyboard.instance.addHandler(_handleKeyboardEvent);
+  }
+
+  bool _handleKeyboardEvent(KeyEvent event) {
+    final bool isControlPressed = HardwareKeyboard.instance.isControlPressed;
+    if (isControlPressed != _isControlPressed) {
+      setState(() => _isControlPressed = isControlPressed);
+    }
+    return false;
+  }
+
+  void _syncPreviewZoomPercent() {
+    if (!mounted) return;
+    final int zoomPercent = (_previewTransformationController.value
+                .getMaxScaleOnAxis() *
+            100)
+        .round()
+        .clamp(_minPreviewZoomPercent, _maxPreviewZoomPercent)
+        .toInt();
+    if (zoomPercent != _previewZoomPercent) {
+      setState(() => _previewZoomPercent = zoomPercent);
+    }
+  }
+
+  Offset _previewViewportCenter() {
+    final RenderObject? renderObject =
+        _previewViewportKey.currentContext?.findRenderObject();
+    if (renderObject is RenderBox && renderObject.hasSize) {
+      return renderObject.size.center(Offset.zero);
+    }
+    return Offset.zero;
+  }
+
+  void _zoomPreviewAt(Offset focalPoint, double scaleFactor) {
+    final Matrix4 currentTransform = _previewTransformationController.value;
+    final double currentScale = currentTransform.getMaxScaleOnAxis();
+    final double nextScale = (currentScale * scaleFactor)
+        .clamp(.5, 4.0)
+        .toDouble();
+    if ((nextScale - 1).abs() <= .005) {
+      _resetPreviewZoom();
+      return;
+    }
+    if (nextScale == currentScale) return;
+
+    _previewTransformationController.value =
+        Matrix4.identity()
+          ..translateByDouble(focalPoint.dx, focalPoint.dy, 0, 1)
+          ..scaleByDouble(
+            nextScale / currentScale,
+            nextScale / currentScale,
+            1,
+            1,
+          )
+          ..translateByDouble(-focalPoint.dx, -focalPoint.dy, 0, 1)
+          ..multiply(currentTransform);
+  }
+
+  void _handlePreviewPointerEvent(PointerEvent event) {
+    if (event is! PointerScrollEvent ||
+        !HardwareKeyboard.instance.isControlPressed) {
+      return;
+    }
+    final RenderObject? renderObject =
+        _previewViewportKey.currentContext?.findRenderObject();
+    if (renderObject is! RenderBox || !renderObject.hasSize) return;
+
+    final Offset focalPoint = renderObject.globalToLocal(event.position);
+    if (!(Offset.zero & renderObject.size).contains(focalPoint)) return;
+
+    GestureBinding.instance.pointerSignalResolver.register(
+      event,
+      (PointerSignalEvent resolvedEvent) {
+        if (resolvedEvent is! PointerScrollEvent) return;
+        final double scrollAmount =
+            resolvedEvent.scrollDelta.dy == 0
+                ? resolvedEvent.scrollDelta.dx
+                : resolvedEvent.scrollDelta.dy;
+        _zoomPreviewAt(focalPoint, math.exp(-scrollAmount / 240));
+      },
+    );
+  }
+
+  void _adjustPreviewZoom(int steps) {
+    _zoomPreviewAt(
+      _previewViewportCenter(),
+      math.pow(1.1, steps).toDouble(),
+    );
+  }
+
+  void _resetPreviewZoom() {
+    _previewTransformationController.value = Matrix4.identity();
+  }
+
+  void _resetPreviewZoomIfAtBase() {
+    if ((_previewTransformationController.value.getMaxScaleOnAxis() - 1)
+            .abs() <=
+        .005) {
+      _resetPreviewZoom();
+    }
+  }
 
   @override
   void didChangeDependencies() {
@@ -52,6 +172,13 @@ class _EditorScreenState extends State<EditorScreen> {
   void dispose() {
     _autosaveTimer?.cancel();
     _observedEditor?.removeListener(_scheduleAutosave);
+    GestureBinding.instance.pointerRouter.removeGlobalRoute(
+      _handlePreviewPointerEvent,
+    );
+    HardwareKeyboard.instance.removeHandler(_handleKeyboardEvent);
+    _previewTransformationController
+      ..removeListener(_syncPreviewZoomPercent)
+      ..dispose();
     super.dispose();
   }
 
@@ -174,7 +301,7 @@ class _EditorScreenState extends State<EditorScreen> {
                                   color: EditorPalette.mutedText(context),
                                 ),
                                 const SizedBox(width: 7),
-                                if (viewport.width > 850)
+                                if (viewport.width > 1100)
                                   Text(
                                     'Select a widget on the canvas to edit it',
                                     style: TextStyle(
@@ -183,6 +310,50 @@ class _EditorScreenState extends State<EditorScreen> {
                                     ),
                                   ),
                                 const Spacer(),
+                                Tooltip(
+                                  message: 'Zoom out preview (Ctrl + scroll down)',
+                                  child: IconButton(
+                                    visualDensity: VisualDensity.compact,
+                                    onPressed:
+                                        _previewZoomPercent <=
+                                                _minPreviewZoomPercent
+                                            ? null
+                                            : () => _adjustPreviewZoom(-1),
+                                    icon: const Icon(Icons.remove, size: 17),
+                                  ),
+                                ),
+                                Tooltip(
+                                  message:
+                                      'Reset zoom · Ctrl+scroll or pinch to zoom · Ctrl+drag to pan',
+                                  child: TextButton(
+                                    onPressed:
+                                        _previewZoomPercent == 100
+                                            ? null
+                                            : _resetPreviewZoom,
+                                    style: TextButton.styleFrom(
+                                      minimumSize: const Size(42, 30),
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 4,
+                                      ),
+                                      visualDensity: VisualDensity.compact,
+                                      textStyle: const TextStyle(fontSize: 10),
+                                    ),
+                                    child: Text('$_previewZoomPercent%'),
+                                  ),
+                                ),
+                                Tooltip(
+                                  message: 'Zoom in preview (Ctrl + scroll up)',
+                                  child: IconButton(
+                                    visualDensity: VisualDensity.compact,
+                                    onPressed:
+                                        _previewZoomPercent >=
+                                                _maxPreviewZoomPercent
+                                            ? null
+                                            : () => _adjustPreviewZoom(1),
+                                    icon: const Icon(Icons.add, size: 17),
+                                  ),
+                                ),
+                                const SizedBox(width: 5),
                                 IconButton(
                                   tooltip:
                                       _showPalette
@@ -220,7 +391,7 @@ class _EditorScreenState extends State<EditorScreen> {
                                   ),
                                 ),
                                 const SizedBox(width: 6),
-                                if (viewport.width > 800)
+                                if (viewport.width > 1100)
                                   Text(
                                     '${_previewSize.width.round()} × ${_previewSize.height.round()}',
                                     style: TextStyle(
@@ -238,6 +409,13 @@ class _EditorScreenState extends State<EditorScreen> {
                               root: editor.activeRoot,
                               selectedNodeId: editor.selectedNodeId,
                               size: _previewSize,
+                              transformationController:
+                                  _previewTransformationController,
+                              viewportKey: _previewViewportKey,
+                              panEnabled:
+                                  _isControlPressed &&
+                                  _previewZoomPercent > 100,
+                              onInteractionEnd: _resetPreviewZoomIfAtBase,
                               onSelect: editor.selectNode,
                               onDrop: _handleDrop,
                               onNavigate: editor.navigateToRoute,

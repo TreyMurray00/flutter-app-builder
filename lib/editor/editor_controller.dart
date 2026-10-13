@@ -742,6 +742,14 @@ class EditorController extends ChangeNotifier {
         'mainAxisAlignment': 'start',
         'crossAxisAlignment': 'center',
       },
+      'expanded' => <String, Object?>{'flex': 1},
+      'safeArea' => <String, Object?>{
+        'top': true,
+        'bottom': true,
+        'left': true,
+        'right': true,
+        'minimum': 0.0,
+      },
       'column' => <String, Object?>{
         'mainAxisAlignment': 'start',
         'crossAxisAlignment': 'start',
@@ -859,6 +867,13 @@ class EditorController extends ChangeNotifier {
       parent = target?.acceptsChildren == true ? target : _insertionParent();
     } else {
       parent = activeRoot.parentOfId(targetId);
+    }
+    if (type == 'expanded') {
+      if (targetId == null) {
+        parent = _flexInsertionParent();
+      } else if (parent?.type != 'row' && parent?.type != 'column') {
+        return;
+      }
     }
     if (parent == null) return;
     final Set<String> ids =
@@ -1069,6 +1084,18 @@ class EditorController extends ChangeNotifier {
     final BuilderNode? parent = activeRoot.parentOfId(selected.id);
     if (parent?.acceptsChildren ?? false) return parent;
     return _firstContainer();
+  }
+
+  BuilderNode? _flexInsertionParent() {
+    BuilderNode? current = activeRoot.findById(_selectedNodeId);
+    while (current != null) {
+      if (current.type == 'row' || current.type == 'column') return current;
+      current = activeRoot.parentOfId(current.id);
+    }
+    for (final BuilderNode node in activeRoot.depthFirst()) {
+      if (node.type == 'row' || node.type == 'column') return node;
+    }
+    return null;
   }
 
   BuilderNode? _firstContainer() {

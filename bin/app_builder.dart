@@ -209,6 +209,28 @@ Future<List<_Issue>> _validateFile(File file) async {
             ),
           );
         }
+        if (node.type == 'expanded') {
+          BuilderNode? parent = page.root.parentOfId(node.id);
+          while (parent != null &&
+              parent.type == 'componentGroup' &&
+              parent.children.length == 1) {
+            parent = page.root.parentOfId(parent.id);
+          }
+          final bool isValidFlexChild =
+              parent?.type == 'row' ||
+              parent?.type == 'column' ||
+              (parent != null &&
+                  parent.type == 'componentGroup' &&
+                  parent.children.length > 1);
+          if (!isValidFlexChild) {
+            issues.add(
+              _Issue(
+                'error',
+                'Expanded widget "${node.id}" must be a direct child of a Row or Column.',
+              ),
+            );
+          }
+        }
         if (node.type == 'image') {
           final Object? rawSource = node.properties['source'];
           final String source = rawSource is String ? rawSource.trim() : '';

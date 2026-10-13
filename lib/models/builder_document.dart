@@ -734,7 +734,9 @@ class BuilderNode {
       type == 'scaffold' ||
       type == 'column' ||
       type == 'row' ||
+      type == 'expanded' ||
       type == 'container' ||
+      type == 'safeArea' ||
       type == 'stack' ||
       type == 'listView' ||
       type == 'gridView' ||
@@ -743,6 +745,12 @@ class BuilderNode {
       type == 'card' ||
       type == 'padding' ||
       type == 'componentGroup';
+
+  bool canAcceptChildType(String childType) =>
+      acceptsChildren &&
+      (childType != 'expanded' || type == 'row' || type == 'column');
+
+  bool canAcceptChild(BuilderNode child) => canAcceptChildType(child.type);
 
   Map<String, Object?> toJson() => <String, Object?>{
     'id': id,
@@ -822,7 +830,7 @@ class BuilderNode {
 
   BuilderNode appendToId(String targetId, BuilderNode child) {
     return updateById(targetId, (BuilderNode node) {
-      if (!node.acceptsChildren) return node;
+      if (!node.canAcceptChild(child)) return node;
       return node.copyWith(children: <BuilderNode>[...node.children, child]);
     });
   }
@@ -863,7 +871,8 @@ class BuilderNode {
         source.depthFirst().any((BuilderNode node) => node.id == targetId)) {
       return null;
     }
-    if (position == BuilderDropPosition.inside && !target.acceptsChildren) {
+    if (position == BuilderDropPosition.inside &&
+        !target.canAcceptChild(source)) {
       return null;
     }
     final BuilderNode withoutSource = removeById(sourceId);
@@ -874,7 +883,7 @@ class BuilderNode {
     }
 
     final BuilderNode? targetParent = parentOfId(targetId);
-    if (targetParent == null) return null;
+    if (targetParent == null || !targetParent.canAcceptChild(source)) return null;
     return withoutSource.updateById(targetParent.id, (BuilderNode parent) {
       final List<BuilderNode> children = List<BuilderNode>.of(parent.children);
       final int targetIndex = children.indexWhere(

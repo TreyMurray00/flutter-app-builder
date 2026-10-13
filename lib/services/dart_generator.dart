@@ -951,20 +951,25 @@ Future<Database> openBuilderDatabase() =>
 ''';
 
   String _emitNode(BuilderNode node, int indent) {
+    final bool isExpanded = node.type == 'expanded';
     final bool hasPadding =
+        !isExpanded &&
         node.type != 'container' &&
         node.type != 'padding' &&
         _hasInsets(node, 'padding');
     final bool hasOpacity =
-        _number(node.properties['opacity'], 1, 0, 1) < 1 ||
-        _hasDynamicProperty(node, 'opacity');
-    final bool hasMargin = _hasInsets(node, 'margin');
+        !isExpanded &&
+        (_number(node.properties['opacity'], 1, 0, 1) < 1 ||
+            _hasDynamicProperty(node, 'opacity'));
+    final bool hasMargin = !isExpanded && _hasInsets(node, 'margin');
     final bool hasVisibility =
-        node.properties['visible'] == false ||
-        _hasDynamicProperty(node, 'visible');
+        !isExpanded &&
+        (node.properties['visible'] == false ||
+            _hasDynamicProperty(node, 'visible'));
     final bool hasResponsiveSize =
-        _sizeFactor(node.properties['widthMode']) != null ||
-        _sizeFactor(node.properties['heightMode']) != null;
+        !isExpanded &&
+        (_sizeFactor(node.properties['widthMode']) != null ||
+            _sizeFactor(node.properties['heightMode']) != null);
     final int wrapperCount =
         (hasResponsiveSize ? 1 : 0) +
         (hasPadding ? 1 : 0) +
@@ -1090,6 +1095,26 @@ Future<Database> openBuilderDatabase() =>
             '$inner children: <Widget>[\n'
             '$children'
             '$inner ],\n'
+            '$pad)';
+      case 'expanded':
+        final int flex = _integer(node.properties['flex'], 1).clamp(1, 100);
+        return 'Expanded(\n'
+            '$inner flex: $flex,\n'
+            '$inner child: ${_emitChildren(node.children, indent + 4)},\n'
+            '$pad)';
+      case 'safeArea':
+        final bool top = node.properties['top'] != false;
+        final bool bottom = node.properties['bottom'] != false;
+        final bool left = node.properties['left'] != false;
+        final bool right = node.properties['right'] != false;
+        final double minimum = _number(node.properties['minimum'], 0, 0, 1200);
+        return 'SafeArea(\n'
+            '$inner top: $top,\n'
+            '$inner bottom: $bottom,\n'
+            '$inner left: $left,\n'
+            '$inner right: $right,\n'
+            '$inner minimum: const EdgeInsets.all($minimum),\n'
+            '$inner child: ${_emitChildren(node.children, indent + 4)},\n'
             '$pad)';
       case 'container':
         final double width = _number(node.properties['width'], 220, 0, 1200);

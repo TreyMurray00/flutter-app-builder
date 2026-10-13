@@ -350,6 +350,7 @@ class _WidgetTreePanelState extends State<WidgetTreePanel> {
       Padding(
         padding: EdgeInsets.only(left: depth * 14.0),
         child: _DraggableTreeRow(
+          root: widget.root,
           node: node,
           selected: node.id == widget.selectedNodeId,
           onSelect: () => widget.onSelect(node.id),
@@ -401,12 +402,14 @@ class _PanelHeading extends StatelessWidget {
 
 class _DraggableTreeRow extends StatelessWidget {
   const _DraggableTreeRow({
+    required this.root,
     required this.node,
     required this.selected,
     required this.onSelect,
     required this.onDrop,
   });
 
+  final BuilderNode root;
   final BuilderNode node;
   final bool selected;
   final VoidCallback onSelect;
@@ -481,10 +484,22 @@ class _DraggableTreeRow extends StatelessWidget {
     if (!node.acceptsChildren) return draggable;
     return DragTarget<EditorDragData>(
       onWillAcceptWithDetails:
-          (DragTargetDetails<EditorDragData> details) =>
-              details.data is PaletteObjectDrag ||
-              (details.data is ExistingObjectDrag &&
-                  (details.data as ExistingObjectDrag).nodeId != node.id),
+          (DragTargetDetails<EditorDragData> details) {
+            final EditorDragData data = details.data;
+            if (data is PaletteObjectDrag) {
+              return node.canAcceptChildType(data.type);
+            }
+            if (data is ExistingObjectDrag) {
+              final BuilderNode? dragged = root.findById(data.nodeId);
+              return dragged != null &&
+                  dragged.id != node.id &&
+                  node.canAcceptChild(dragged) &&
+                  !dragged.depthFirst().any(
+                    (BuilderNode descendant) => descendant.id == node.id,
+                  );
+            }
+            return false;
+          },
       onAcceptWithDetails:
           (DragTargetDetails<EditorDragData> details) => onDrop(details.data),
       builder: (
