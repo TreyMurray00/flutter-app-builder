@@ -6,6 +6,10 @@ import '../models/builder_document.dart';
 class DartGenerator {
   String _currentPageId = 'home';
   Map<String, BuilderVariable> _variablesById = <String, BuilderVariable>{};
+  Map<String, BuilderCustomFunction> _customFunctionsById =
+      <String, BuilderCustomFunction>{};
+  Map<String, BuilderDatabaseCollection> _databaseCollectionsById =
+      <String, BuilderDatabaseCollection>{};
   final Map<String, Set<String>> _widgetActionTargets = <String, Set<String>>{};
   Map<String, String> _imageAssets = <String, String>{};
 
@@ -18,10 +22,23 @@ class DartGenerator {
       for (final BuilderVariable variable in document.variables)
         variable.id: variable,
     };
+    _customFunctionsById = <String, BuilderCustomFunction>{
+      for (final BuilderCustomFunction function in document.customFunctions)
+        function.id: function,
+    };
+    _databaseCollectionsById = <String, BuilderDatabaseCollection>{
+      for (final BuilderDatabaseCollection collection
+          in document.databaseCollections)
+        collection.id: collection,
+    };
+    final List<Map<String, Object?>> functionActions =
+        document.customFunctions.expand(BuilderAction.allForFunction).toList();
     _widgetActionTargets.clear();
     for (final BuilderPage page in document.allPages) {
       for (final BuilderNode node in page.root.depthFirst()) {
-        for (final Map<String, Object?> action in BuilderAction.forNode(node)) {
+        for (final Map<String, Object?> action in BuilderAction.allForNode(
+          node,
+        )) {
           if (action['type'] == 'updateWidget' &&
               action['targetPageId'] is String &&
               action['targetNodeId'] is String &&
@@ -37,7 +54,39 @@ class DartGenerator {
         }
       }
     }
+    for (final Map<String, Object?> action in functionActions) {
+      if (action['type'] == 'updateWidget' &&
+          action['targetPageId'] is String &&
+          action['targetNodeId'] is String &&
+          action['property'] is String) {
+        final String key = _runtimeWidgetKey(
+          action['targetPageId']! as String,
+          action['targetNodeId']! as String,
+        );
+        _widgetActionTargets
+            .putIfAbsent(key, () => <String>{})
+            .add(action['property']! as String);
+      }
+    }
     final String seedColor = _colorLiteral(document.seedColor);
+    final BuilderTheme appTheme = document.appTheme;
+    final String backgroundOverride =
+        appTheme.backgroundColor == null
+            ? ''
+            : 'surface: const Color(${_colorLiteral(appTheme.backgroundColor!)}),';
+    final String textOverride =
+        appTheme.textColor == null
+            ? ''
+            : 'onSurface: const Color(${_colorLiteral(appTheme.textColor!)}),';
+    final String fontFamily =
+        appTheme.fontFamily.trim().isEmpty
+            ? 'null'
+            : _dartString(appTheme.fontFamily.trim());
+    final String themeMode = switch (appTheme.brightness) {
+      'dark' => 'ThemeMode.dark',
+      'system' => 'ThemeMode.system',
+      _ => 'ThemeMode.light',
+    };
     final List<BuilderPage> pages = document.allPages;
     final Iterable<BuilderNode> allNodes = pages.expand(
       (BuilderPage page) => page.root.depthFirst(),
@@ -61,7 +110,74 @@ class DartGenerator {
     final bool usesSwipeableStack = allNodes.any(
       (BuilderNode node) => node.type == 'swipeableStack',
     );
+    final bool usesDatabaseActions =
+        functionActions.any(
+          (Map<String, Object?> action) =>
+              (action['type'] as String? ?? '').startsWith('database'),
+        ) ||
+        allNodes.any(
+          (BuilderNode node) => BuilderAction.allForNode(node).any(
+            (Map<String, Object?> action) =>
+                (action['type'] as String? ?? '').startsWith('database'),
+          ),
+        );
+    final bool usesHttp =
+        document.customFunctions.any(
+          (BuilderCustomFunction function) =>
+              RegExp(r'\bhttp\.').hasMatch(function.body),
+        ) ||
+        document.customDataStructures.any(
+          (BuilderCustomDataStructure structure) =>
+              RegExp(r'\bhttp\.').hasMatch(structure.body),
+        ) ||
+        functionActions.any(
+          (Map<String, Object?> action) => action['type'] == 'httpRequest',
+        ) ||
+        allNodes.any(
+          (BuilderNode node) => BuilderAction.allForNode(node).any(
+            (Map<String, Object?> action) => action['type'] == 'httpRequest',
+          ),
+        );
     final String ioImport = usesImageFile ? "import 'dart:io';\n" : '';
+    final bool usesJson =
+        usesHttp ||
+        (usesDatabaseActions &&
+            functionActions.any(
+              (Map<String, Object?> action) =>
+                  action['type'] == 'databaseInsert',
+            )) ||
+        (usesDatabaseActions &&
+            allNodes.any(
+              (BuilderNode node) => BuilderAction.allForNode(node).any(
+                (Map<String, Object?> action) =>
+                    action['type'] == 'databaseInsert',
+              ),
+            )) ||
+        document.customFunctions.any(
+          (BuilderCustomFunction function) =>
+              RegExp(r'\bjson(Encode|Decode)\b').hasMatch(function.body),
+        ) ||
+        document.customDataStructures.any(
+          (BuilderCustomDataStructure structure) =>
+              RegExp(r'\bjson(Encode|Decode)\b').hasMatch(structure.body),
+        );
+    final String jsonImport = usesJson ? "import 'dart:convert';\n" : '';
+    final bool usesMath =
+        document.customFunctions.any(
+          (BuilderCustomFunction function) =>
+              RegExp(r'\bmath\.').hasMatch(function.body),
+        ) ||
+        document.customDataStructures.any(
+          (BuilderCustomDataStructure structure) =>
+              RegExp(r'\bmath\.').hasMatch(structure.body),
+        );
+    final String mathImport = usesMath ? "import 'dart:math' as math;\n" : '';
+    final String httpImport =
+        usesHttp ? "import 'package:http/http.dart' as http;\n" : '';
+    final String databaseImport =
+        usesDatabaseActions && document.databaseCollections.isNotEmpty
+            ? "import 'local_database.dart';\n"
+            : '';
     final StringBuffer routeBuffer = StringBuffer();
     for (final BuilderPage page in pages) {
       _currentPageId = page.id;
@@ -75,6 +191,8 @@ class DartGenerator {
         document.pageById(document.initialPageId)?.route ?? '/';
     return '''// Generated by Local Flutter Builder. Edit the design document to regenerate.
 ${ioImport}import 'package:flutter/material.dart';
+$jsonImport$mathImport$httpImport$databaseImport
+${document.customDataStructures.map((BuilderCustomDataStructure structure) => structure.body).join('\n\n')}
 
 void main() {
   runApp(const GeneratedApp());
@@ -92,16 +210,52 @@ class _GeneratedAppState extends State<GeneratedApp> {
 ${document.variables.map((BuilderVariable variable) => "    ${_dartString(variable.id)}: ${_dartValue(variable.initialValue)},").join('\n')}
   };
   final Map<String, Object?> _widgetState = <String, Object?>{};
+  final Set<String> _activeCustomFunctions = <String>{};
+${usesDatabaseActions && document.databaseCollections.isNotEmpty ? '  final LocalDatabaseRepository _database = LocalDatabaseRepository();' : ''}
+
+${usesHttp ? _httpHelper : ''}
+${document.customFunctions.map(_emitCustomFunction).join('\n')}
+
+  ThemeData _buildTheme(Brightness brightness) {
+    final ColorScheme base = ColorScheme.fromSeed(
+      seedColor: const Color($seedColor),
+      brightness: brightness,
+    );
+    final ColorScheme colors = base.copyWith(
+      $backgroundOverride
+      $textOverride
+    );
+    final RoundedRectangleBorder shape = RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(${appTheme.cornerRadius}),
+    );
+    return ThemeData(
+      useMaterial3: true,
+      colorScheme: colors,
+      scaffoldBackgroundColor: colors.surface,
+      fontFamily: $fontFamily,
+      cardTheme: CardThemeData(shape: shape),
+      inputDecorationTheme: InputDecorationTheme(
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(${appTheme.cornerRadius}),
+        ),
+      ),
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(shape: shape),
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(shape: shape),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: ${_dartString(document.name)},
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color($seedColor)),
-      ),
+      theme: _buildTheme(Brightness.light),
+      darkTheme: _buildTheme(Brightness.dark),
+      themeMode: $themeMode,
       initialRoute: ${_dartString(initialRoute)},
       routes: <String, WidgetBuilder>{
 $routes      },
@@ -137,6 +291,8 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+${_projectHttpDependency(document)}
+${_projectDatabaseDependency(document)}
 
 dev_dependencies:
   flutter_test:
@@ -146,6 +302,11 @@ flutter:
   uses-material-design: true
 $assetsSection''',
       'lib/main.dart': generate(document, imageAssets: imageAssets),
+      if (document.databaseCollections.isNotEmpty) ...<String, String>{
+        'lib/local_database.dart': _generateDatabaseRepository(document),
+        'lib/local_database_io.dart': _databaseIoSource,
+        'lib/local_database_web.dart': _databaseWebSource,
+      },
       'README.md': '''# ${document.name}
 
 This Flutter app was generated locally by Local Flutter Builder.
@@ -154,6 +315,7 @@ This Flutter app was generated locally by Local Flutter Builder.
 
 Install Flutter, then run `flutter pub get` and `flutter run` from this directory.
 The project includes Android, iOS, web, Windows, macOS, and Linux scaffolding.
+${document.databaseCollections.isEmpty ? '' : '\n## Local data\n\nRecords are stored on this device using Sembast. The web build uses IndexedDB in the current browser. Starter records are added only when each collection is first opened.\n'}
 ''',
       'analysis_options.yaml': '''analyzer:
   exclude:
@@ -233,53 +395,130 @@ void main() {
     final List<Map<String, Object?>> actions = BuilderAction.forNode(node);
     if (actions.isEmpty) return 'null';
     final String pad = _spaces(indent);
-    final String inner = _spaces(indent + 4);
+    final String body = _emitActionStatements(actions, indent + 4);
+    if (body.isEmpty) return 'null';
+    return '() async {\n$body$pad}';
+  }
+
+  String _emitCustomFunction(BuilderCustomFunction function) {
+    final String body =
+        function.body.trim().isEmpty
+            ? _emitActionStatements(function.actions, 4)
+            : _indentCustomFunctionBody(function.body);
+    final List<String> variableIdEntries = <String>[];
+    for (final BuilderVariable variable in _variablesById.values) {
+      variableIdEntries
+        ..add('      ${_dartString(variable.id)}: ${_dartString(variable.id)},')
+        ..add(
+          '      ${_dartString(variable.name)}: ${_dartString(variable.id)},',
+        );
+    }
+    final String previewHelpers =
+        function.body.trim().isEmpty
+            ? ''
+            : '''
+    final Map<String, String> _customFunctionVariableIds = <String, String>{
+${variableIdEntries.join('\n')}
+    };
+    Object? getVariable(String nameOrId) {
+      final String? id = _customFunctionVariableIds[nameOrId];
+      return _appState[id ?? nameOrId];
+    }
+    void setVariable(String nameOrId, Object? value) {
+      final String? id = _customFunctionVariableIds[nameOrId];
+      if (id != null) setState(() => _appState[id] = value);
+    }
+    void showMessage(String message) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    }
+    void navigateTo(String route) {
+      Navigator.of(context).pushNamed(route);
+    }
+    Future<void> back() async {
+      await Navigator.of(context).maybePop();
+    }
+''';
+    return '  Future<void> ${_customFunctionMethodName(function)}(BuildContext context) async {\n'
+        '$previewHelpers'
+        '$body'
+        '  }\n';
+  }
+
+  String _indentCustomFunctionBody(String source) {
+    final List<String> lines = source
+        .replaceAll('\r\n', '\n')
+        .replaceAll('\r', '\n')
+        .split('\n');
+    while (lines.isNotEmpty && lines.last.trim().isEmpty) {
+      lines.removeLast();
+    }
+    final int commonIndent =
+        lines
+            .where((String line) => line.trim().isNotEmpty)
+            .map(
+              (String line) =>
+                  RegExp(r'^\s*').firstMatch(line)!.group(0)!.length,
+            )
+            .fold<int?>(
+              null,
+              (int? minimum, int indent) =>
+                  minimum == null || indent < minimum ? indent : minimum,
+            ) ??
+        0;
+    return lines
+        .map(
+          (String line) =>
+              line.trim().isEmpty
+                  ? '\n'
+                  : '    ${line.substring(commonIndent)}\n',
+        )
+        .join();
+  }
+
+  String _customFunctionMethodName(BuilderCustomFunction function) {
+    final String token = packageNameFor('custom_${function.id}');
+    return '_run_$token';
+  }
+
+  String _emitActionStatements(List<Map<String, Object?>> actions, int indent) {
+    final String inner = _spaces(indent);
     final StringBuffer body = StringBuffer();
     for (final Map<String, Object?> action in actions) {
       switch (action['type']) {
         case 'navigate':
-          final String route =
-              action['route'] is String
-                  ? (action['route']! as String).trim()
-                  : '';
+          final String route = _stringActionValue(action, 'route').trim();
           if (route.isEmpty) break;
           final String method =
               action['behavior'] == 'replace'
                   ? 'pushReplacementNamed'
                   : 'pushNamed';
           body.writeln(
-            '$inner Navigator.of(context).$method(${_dartString(route)});',
+            '$inner Navigator.of(context).$method(${_templateExpression(route)});',
           );
         case 'snackbar':
-          final String message =
-              action['message'] is String ? action['message']! as String : '';
           body.writeln(
-            '$inner ScaffoldMessenger.of(context).showSnackBar('
-            'SnackBar(content: Text(${_dartString(message)})));',
+            '$inner ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(${_templateExpression(_stringActionValue(action, 'message'))})));',
           );
         case 'dialog':
-          final String title =
-              action['title'] is String ? action['title']! as String : 'Notice';
-          final String message =
-              action['message'] is String ? action['message']! as String : '';
           body
             ..writeln('$inner await showDialog<void>(')
-            ..writeln('${_spaces(indent + 8)}context: context,')
+            ..writeln('${_spaces(indent + 4)}context: context,')
             ..writeln(
-              '${_spaces(indent + 8)}builder: (BuildContext dialogContext) => AlertDialog(',
+              '${_spaces(indent + 4)}builder: (BuildContext dialogContext) => AlertDialog(',
             )
             ..writeln(
-              '${_spaces(indent + 10)}title: Text(${_dartString(title)}),',
+              '${_spaces(indent + 6)}title: Text(${_templateExpression(_stringActionValue(action, 'title', fallback: 'Notice'))}),',
             )
             ..writeln(
-              '${_spaces(indent + 10)}content: Text(${_dartString(message)}),',
+              '${_spaces(indent + 6)}content: Text(${_templateExpression(_stringActionValue(action, 'message'))}),',
             )
-            ..writeln('${_spaces(indent + 10)}actions: <Widget>[')
+            ..writeln('${_spaces(indent + 6)}actions: <Widget>[')
             ..writeln(
-              '${_spaces(indent + 12)}TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text("OK")),',
+              '${_spaces(indent + 8)}TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text("OK")),',
             )
-            ..writeln('${_spaces(indent + 10)}],')
-            ..writeln('${_spaces(indent + 8)}),')
+            ..writeln('${_spaces(indent + 6)}],')
+            ..writeln('${_spaces(indent + 4)}),')
             ..writeln('$inner);');
         case 'back':
           body.writeln('$inner await Navigator.of(context).maybePop();');
@@ -287,8 +526,13 @@ void main() {
           final String variableId = action['variableId'] as String? ?? '';
           final BuilderVariable? variable = _variablesById[variableId];
           if (variable == null) break;
+          final Object? rawValue = action['value'];
+          final String value =
+              variable.type == 'string' && rawValue is String
+                  ? _templateExpression(rawValue)
+                  : _dartValue(_coerceActionValue(variable, rawValue));
           body.writeln(
-            '$inner setState(() => _appState[${_dartString(variableId)}] = ${_dartValue(_coerceActionValue(variable, action['value']))});',
+            '$inner setState(() => _appState[${_dartString(variableId)}] = $value);',
           );
         case 'incrementVariable':
           final String variableId = action['variableId'] as String? ?? '';
@@ -320,21 +564,391 @@ void main() {
                 'initialValue',
                 'visible',
                 'opacity',
-              }.contains(property)) {
+              }.contains(property))
             break;
-          }
-          final Object? value = _coerceWidgetActionValue(
-            property,
-            action['value'],
-          );
+          final Object? rawValue = action['value'];
+          final String value =
+              rawValue is String &&
+                      <String>{
+                        'text',
+                        'label',
+                        'initialValue',
+                      }.contains(property)
+                  ? _templateExpression(rawValue)
+                  : _dartValue(_coerceWidgetActionValue(property, rawValue));
           body.writeln(
-            '$inner setState(() => _widgetState[${_dartString('${_runtimeWidgetKey(pageId, targetNodeId)}.$property')}] = ${_dartValue(value)});',
+            '$inner setState(() => _widgetState[${_dartString('${_runtimeWidgetKey(pageId, targetNodeId)}.$property')}] = $value);',
           );
+        case 'conditional':
+          final String condition = _conditionExpression(action);
+          body.writeln('$inner if ($condition) {');
+          body.write(
+            _emitActionStatements(
+              _actionList(action['thenActions']),
+              indent + 2,
+            ),
+          );
+          final List<Map<String, Object?>> elseActions = _actionList(
+            action['elseActions'],
+          );
+          if (elseActions.isNotEmpty) {
+            body.writeln('${inner}} else {');
+            body.write(_emitActionStatements(elseActions, indent + 2));
+          }
+          body.writeln('$inner}');
+        case 'loop':
+          final int count =
+              _integer(action['iterations'], 1).clamp(1, 1000).toInt();
+          body.writeln(
+            '${inner}for (int _actionLoop = 0; _actionLoop < $count; _actionLoop++) {',
+          );
+          body.write(
+            _emitActionStatements(_actionList(action['actions']), indent + 2),
+          );
+          body.writeln('$inner}');
+        case 'httpRequest':
+          final String method =
+              <String>{
+                    'GET',
+                    'POST',
+                    'PUT',
+                    'PATCH',
+                    'DELETE',
+                  }.contains(action['method'])
+                  ? action['method']! as String
+                  : 'GET';
+          final String uri = _templateExpression(
+            _stringActionValue(action, 'url'),
+          );
+          final String headers = _httpHeadersExpression(action['headers']);
+          final String requestBody = _templateExpression(
+            _stringActionValue(action, 'body'),
+          );
+          body
+            ..writeln('${inner}try {')
+            ..writeln(
+              '${_spaces(indent + 2)}final Uri? _actionUri = Uri.tryParse($uri);',
+            )
+            ..writeln(
+              '${_spaces(indent + 2)}if (_actionUri != null && const <String>{"http", "https"}.contains(_actionUri.scheme)) {',
+            )
+            ..writeln(
+              '${_spaces(indent + 4)}final http.Response _actionResponse = await _sendHttpRequest(${_dartString(method)}, _actionUri, $headers, $requestBody);',
+            );
+          final String responseId =
+              action['responseVariableId'] as String? ?? '';
+          final BuilderVariable? responseVariable = _variablesById[responseId];
+          if (responseVariable != null) {
+            body.writeln(
+              '${_spaces(indent + 4)}setState(() => _appState[${_dartString(responseId)}] = ${_httpResponseExpression(responseVariable, '_actionResponse.body')});',
+            );
+          }
+          body.writeln(
+            '${_spaces(indent + 4)}if (_actionResponse.statusCode >= 400 && context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("HTTP request returned \${_actionResponse.statusCode}.")));',
+          );
+          body
+            ..writeln('${_spaces(indent + 2)}}')
+            ..writeln('${inner}} catch (error) {')
+            ..writeln(
+              '${_spaces(indent + 2)}if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Request failed: \${error}")));',
+            )
+            ..writeln('$inner}');
+        case 'databaseInsert':
+          final String collectionId = action['collectionId'] as String? ?? '';
+          if (!_databaseCollectionsById.containsKey(collectionId)) break;
+          final String record = _templateExpression(
+            _stringActionValue(action, 'record', fallback: '{}'),
+          );
+          body
+            ..writeln('${inner}try {')
+            ..writeln(
+              '${_spaces(indent + 2)}final Object? decoded = jsonDecode($record);',
+            )
+            ..writeln(
+              '${_spaces(indent + 2)}if (decoded is! Map) throw const FormatException("Record must be a JSON object.");',
+            )
+            ..writeln(
+              '${_spaces(indent + 2)}await _database.insert(${_dartString(collectionId)}, Map<String, Object?>.from(decoded));',
+            )
+            ..writeln('$inner} catch (error) {')
+            ..writeln(
+              '${_spaces(indent + 2)}if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Could not save record: " + error.toString())));',
+            )
+            ..writeln('$inner}');
+        case 'databaseQuery':
+          final String collectionId = action['collectionId'] as String? ?? '';
+          final String variableId = action['resultVariableId'] as String? ?? '';
+          if (!_databaseCollectionsById.containsKey(collectionId) ||
+              _variablesById[variableId]?.type != 'json')
+            break;
+          body
+            ..writeln('${inner}try {')
+            ..writeln(
+              '${_spaces(indent + 2)}final records = await _database.query(${_dartString(collectionId)});',
+            )
+            ..writeln(
+              '${_spaces(indent + 2)}if (mounted) setState(() => _appState[${_dartString(variableId)}] = records);',
+            )
+            ..writeln('$inner} catch (error) {')
+            ..writeln(
+              '${_spaces(indent + 2)}if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Could not load records: " + error.toString())));',
+            )
+            ..writeln('$inner}');
+        case 'databaseDelete':
+          final String collectionId = action['collectionId'] as String? ?? '';
+          if (!_databaseCollectionsById.containsKey(collectionId)) break;
+          final String recordId = _templateExpression(
+            _stringActionValue(action, 'recordId'),
+          );
+          body
+            ..writeln('${inner}try {')
+            ..writeln(
+              '${_spaces(indent + 2)}await _database.delete(${_dartString(collectionId)}, $recordId);',
+            )
+            ..writeln('$inner} catch (error) {')
+            ..writeln(
+              '${_spaces(indent + 2)}if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Could not delete record: " + error.toString())));',
+            )
+            ..writeln('$inner}');
+        case 'customFunction':
+          final String functionId = action['functionId'] as String? ?? '';
+          final BuilderCustomFunction? function =
+              _customFunctionsById[functionId];
+          if (function == null) break;
+          body
+            ..writeln(
+              '$inner if (_activeCustomFunctions.add(${_dartString(functionId)})) {',
+            )
+            ..writeln('${_spaces(indent + 2)}try {')
+            ..writeln(
+              '${_spaces(indent + 4)}await ${_customFunctionMethodName(function)}(context);',
+            )
+            ..writeln('${_spaces(indent + 2)}} finally {')
+            ..writeln(
+              '${_spaces(indent + 4)}_activeCustomFunctions.remove(${_dartString(functionId)});',
+            )
+            ..writeln('${_spaces(indent + 2)}}')
+            ..writeln('$inner}');
       }
     }
-    if (body.isEmpty) return 'null';
-    return '() async {\n$body$pad}';
+    return body.toString();
   }
+
+  List<Map<String, Object?>> _actionList(Object? raw) =>
+      raw is List
+          ? raw
+              .whereType<Map<Object?, Object?>>()
+              .map(
+                (Map<Object?, Object?> item) => <String, Object?>{
+                  for (final MapEntry<Object?, Object?> entry in item.entries)
+                    entry.key.toString(): entry.value,
+                },
+              )
+              .toList()
+          : <Map<String, Object?>>[];
+
+  String _stringActionValue(
+    Map<String, Object?> action,
+    String key, {
+    String fallback = '',
+  }) => action[key] is String ? action[key]! as String : fallback;
+
+  String _conditionExpression(Map<String, Object?> action) {
+    final String id = action['variableId'] as String? ?? '';
+    final BuilderVariable? variable = _variablesById[id];
+    if (variable == null) return 'false';
+    final String state = '_appState[${_dartString(id)}]';
+    final String value = _templateExpression(
+      _stringActionValue(action, 'value'),
+    );
+    if (_isNumericType(variable.type) &&
+        <String>{'equals', 'notEquals'}.contains(action['operator'])) {
+      final String comparison =
+          '(($state as num?)?.toDouble() == double.tryParse($value))';
+      return action['operator'] == 'notEquals' ? '!$comparison' : comparison;
+    }
+    if (variable.type == 'boolean' &&
+        <String>{'equals', 'notEquals'}.contains(action['operator'])) {
+      final String comparison =
+          '($state == ($value.trim().toLowerCase() == "true"))';
+      return action['operator'] == 'notEquals' ? '!$comparison' : comparison;
+    }
+    return switch (action['operator']) {
+      'notEquals' => '($state?.toString() != $value)',
+      'greaterThan' =>
+        '(($state is num ? ($state as num).toDouble() : double.nan) > (double.tryParse($value) ?? double.nan))',
+      'lessThan' =>
+        '(($state is num ? ($state as num).toDouble() : double.nan) < (double.tryParse($value) ?? double.nan))',
+      'contains' =>
+        variable.type == 'stringList'
+            ? '((($state as List?) ?? const <Object?>[]).contains($value))'
+            : '(($state?.toString() ?? "").contains($value))',
+      'isTrue' => '($state == true)',
+      'isFalse' => '($state == false)',
+      _ => '($state?.toString() == $value)',
+    };
+  }
+
+  String _httpHeadersExpression(Object? raw) {
+    Object? decoded = raw;
+    if (decoded is String) {
+      try {
+        decoded = jsonDecode(decoded);
+      } on FormatException {
+        decoded = null;
+      }
+    }
+    if (decoded is! Map<Object?, Object?>) return '<String, String>{}';
+    final Iterable<String> entries = decoded.entries.map((
+      MapEntry<Object?, Object?> entry,
+    ) {
+      final String key = entry.key.toString();
+      final String value =
+          entry.value is String
+              ? _templateExpression(entry.value as String)
+              : _dartString(entry.value?.toString() ?? '');
+      return '${_dartString(key)}: $value';
+    });
+    return '<String, String>{${entries.join(', ')}}';
+  }
+
+  String _httpResponseExpression(
+    BuilderVariable variable,
+    String body,
+  ) => switch (variable.type) {
+    'number' || 'double' =>
+      '(double.tryParse($body) ?? ${_dartValue(variable.initialValue)})',
+    'integer' =>
+      '(int.tryParse($body) ?? ${_dartValue(variable.initialValue)})',
+    'boolean' => '($body.trim().toLowerCase() == "true")',
+    'json' =>
+      '(() { try { return jsonDecode($body); } on FormatException { return $body; } })()',
+    'stringList' =>
+      '(() { try { final Object? value = jsonDecode($body); if (value is List) return value.map((Object? item) => item.toString()).toList(); } on FormatException {} return <String>[]; })()',
+    _ => body,
+  };
+
+  String _projectHttpDependency(BuilderDocument document) {
+    final bool usesHttp =
+        document.customFunctions.any(
+          (BuilderCustomFunction function) =>
+              RegExp(r'\bhttp\.').hasMatch(function.body),
+        ) ||
+        document.customDataStructures.any(
+          (BuilderCustomDataStructure structure) =>
+              RegExp(r'\bhttp\.').hasMatch(structure.body),
+        ) ||
+        document.customFunctions.any(
+          (BuilderCustomFunction function) => BuilderAction.allForFunction(
+            function,
+          ).any(
+            (Map<String, Object?> action) => action['type'] == 'httpRequest',
+          ),
+        ) ||
+        document.allPages.any(
+          (BuilderPage page) => page.root.depthFirst().any(
+            (BuilderNode node) => BuilderAction.allForNode(node).any(
+              (Map<String, Object?> action) => action['type'] == 'httpRequest',
+            ),
+          ),
+        );
+    return usesHttp ? '  http: ^1.2.0\n' : '';
+  }
+
+  String _projectDatabaseDependency(BuilderDocument document) =>
+      document.databaseCollections.isEmpty
+          ? ''
+          : '  sembast: ^3.8.4\n  sembast_web: ^2.4.2\n  path_provider: ^2.1.5\n  path: ^1.9.1\n';
+
+  String _generateDatabaseRepository(BuilderDocument document) {
+    final String seeds = document.databaseCollections
+        .map(
+          (BuilderDatabaseCollection collection) =>
+              '    ${_dartString(collection.id)}: ${_dartString(jsonEncode(collection.seedRecords))},',
+        )
+        .join('\n');
+    return '''import 'dart:convert';
+
+import 'package:sembast/sembast.dart';
+import 'local_database_io.dart'
+    if (dart.library.js_interop) 'local_database_web.dart' as local_database;
+
+class LocalDatabaseRepository {
+  Future<Database>? _databaseFuture;
+  final Map<String, String> _seedJson = <String, String>{
+$seeds
+  };
+
+  Future<Database> _database() => _databaseFuture ??= _open();
+
+  Future<Database> _open() async {
+    final Database database = await local_database.openBuilderDatabase();
+    final StoreRef<String, Map<String, Object?>> meta =
+        stringMapStoreFactory.store('_builder_meta');
+    for (final MapEntry<String, String> entry in _seedJson.entries) {
+      await database.transaction((Transaction transaction) async {
+        final RecordRef<String, Map<String, Object?>> marker =
+            meta.record(entry.key);
+        if (await marker.get(transaction) != null) return;
+        final StoreRef<int, Map<String, Object?>> store =
+            intMapStoreFactory.store(entry.key);
+        final List<Object?> records = jsonDecode(entry.value) as List<Object?>;
+        for (final Object? record in records) {
+          await store.add(transaction,
+              Map<String, Object?>.from(record! as Map<String, Object?>));
+        }
+        await marker.put(transaction, <String, Object?>{'seeded': true});
+      });
+    }
+    return database;
+  }
+
+  Future<int> insert(String collectionId, Map<String, Object?> record) async {
+    final Database database = await _database();
+    return intMapStoreFactory.store(collectionId).add(database, record);
+  }
+
+  Future<List<Map<String, Object?>>> query(String collectionId) async {
+    final Database database = await _database();
+    final List<RecordSnapshot<int, Map<String, Object?>>> records =
+        await intMapStoreFactory.store(collectionId).find(database);
+    return records.map((RecordSnapshot<int, Map<String, Object?>> record) =>
+        <String, Object?>{...record.value, '_id': record.key}).toList();
+  }
+
+  Future<bool> delete(String collectionId, String recordId) async {
+    final int? id = int.tryParse(recordId.trim());
+    if (id == null) return false;
+    final Database database = await _database();
+    return await intMapStoreFactory.store(collectionId)
+            .record(id).delete(database) != null;
+  }
+}
+''';
+  }
+
+  static const String _databaseIoSource =
+      '''import 'package:path/path.dart' as path;
+import 'package:path_provider/path_provider.dart';
+import 'package:sembast/sembast.dart';
+import 'package:sembast/sembast_io.dart';
+
+Future<Database> openBuilderDatabase() async {
+  final directory = await getApplicationSupportDirectory();
+  await directory.create(recursive: true);
+  return databaseFactoryIo.openDatabase(
+    path.join(directory.path, 'local_builder.db'),
+  );
+}
+''';
+
+  static const String _databaseWebSource =
+      '''import 'package:sembast/sembast.dart';
+import 'package:sembast_web/sembast_web.dart';
+
+Future<Database> openBuilderDatabase() =>
+    databaseFactoryWeb.openDatabase('local_builder.db');
+''';
 
   String _emitNode(BuilderNode node, int indent) {
     final bool hasPadding =
@@ -348,7 +962,11 @@ void main() {
     final bool hasVisibility =
         node.properties['visible'] == false ||
         _hasDynamicProperty(node, 'visible');
+    final bool hasResponsiveSize =
+        _sizeFactor(node.properties['widthMode']) != null ||
+        _sizeFactor(node.properties['heightMode']) != null;
     final int wrapperCount =
+        (hasResponsiveSize ? 1 : 0) +
         (hasPadding ? 1 : 0) +
         (hasOpacity ? 1 : 0) +
         (hasMargin ? 1 : 0) +
@@ -356,6 +974,10 @@ void main() {
     String output = _emitRawNode(node, indent + wrapperCount * 4);
     int wrapperIndent = indent + (wrapperCount - 1) * 4;
 
+    if (hasResponsiveSize) {
+      output = _wrapResponsiveSize(output, node, wrapperIndent);
+      wrapperIndent -= 4;
+    }
     if (hasPadding) {
       output = _wrapWidget(
         'Padding',
@@ -394,6 +1016,38 @@ void main() {
     }
     return output;
   }
+
+  String _wrapResponsiveSize(String child, BuilderNode node, int indent) {
+    final double? widthFactor = _sizeFactor(node.properties['widthMode']);
+    final double? heightFactor = _sizeFactor(node.properties['heightMode']);
+    final String width =
+        widthFactor == null
+            ? 'null'
+            : '(constraints.maxWidth.isFinite ? constraints.maxWidth : MediaQuery.sizeOf(context).width) * $widthFactor';
+    final String height =
+        heightFactor == null
+            ? 'null'
+            : '(constraints.maxHeight.isFinite ? constraints.maxHeight : MediaQuery.sizeOf(context).height) * $heightFactor';
+    final String pad = _spaces(indent);
+    final String inner = _spaces(indent + 4);
+    return 'LayoutBuilder(\n'
+        '${_spaces(indent + 2)}builder: (BuildContext context, BoxConstraints constraints) {\n'
+        '${_spaces(indent + 4)}return SizedBox(\n'
+        '$inner width: $width,\n'
+        '$inner height: $height,\n'
+        '$inner child: $child,\n'
+        '${_spaces(indent + 4)});\n'
+        '${_spaces(indent + 2)}},\n'
+        '$pad)';
+  }
+
+  double? _sizeFactor(Object? value) => switch (value) {
+    'max' => 1,
+    'quarter' => 0.25,
+    'half' => 0.5,
+    'threeQuarter' => 0.75,
+    _ => null,
+  };
 
   String _emitRawNode(BuilderNode node, int indent) {
     final String pad = _spaces(indent);
@@ -471,6 +1125,8 @@ void main() {
             '$inner padding: const ${_edgeInsetsLiteral(node, 'padding', fallback: 16)},\n'
             '$inner child: ${_emitChildren(node.children, indent + 4)},\n'
             '$pad)';
+      case 'componentGroup':
+        return _emitChildren(node.children, indent);
       case 'card':
         final double width = _number(node.properties['width'], 240, 0, 1200);
         final double height = _number(node.properties['height'], 140, 0, 1200);
@@ -553,13 +1209,16 @@ void main() {
             node.properties['fontWeight'] == 'bold'
                 ? 'FontWeight.bold'
                 : 'FontWeight.normal';
-        final int color = _integer(node.properties['color'], 0xFF303644);
+        final String color =
+            node.properties['color'] is int
+                ? 'const Color(${_colorLiteral(node.properties['color']! as int)})'
+                : 'Theme.of(context).colorScheme.onSurface';
         return 'Text(\n'
             '$inner $text,\n'
             '$inner style: TextStyle(\n'
             '${_spaces(indent + 4)}fontSize: $fontSize,\n'
             '${_spaces(indent + 4)}fontWeight: $fontWeight,\n'
-            '${_spaces(indent + 4)}color: const Color(${_colorLiteral(color)}),\n'
+            '${_spaces(indent + 4)}color: $color,\n'
             '$inner ),\n'
             '$pad)';
       case 'button':
@@ -703,7 +1362,10 @@ void main() {
     final String inner = _spaces(indent + 2);
     final double width = _number(node.properties['width'], 300, 0, 1200);
     final double height = _number(node.properties['height'], 220, 0, 1200);
-    final String childList;
+    final String indexedChildren = _emitIndexedChildren(
+      node.children,
+      indent + 8,
+    );
     final String constructor;
     switch (node.type) {
       case 'listView':
@@ -716,15 +1378,9 @@ void main() {
         final bool horizontal =
             node.properties['scrollDirection'] == 'horizontal';
         final String axis = horizontal ? 'horizontal' : 'vertical';
-        childList = _emitSpacedWidgetList(
-          node.children,
-          indent + 6,
-          spacing,
-          horizontal,
-        );
         constructor =
-            'ListView(scrollDirection: Axis.$axis, padding: EdgeInsets.zero, children: <Widget>[\n'
-            '$childList${_spaces(indent + 4)}])';
+            'ListView.separated(scrollDirection: Axis.$axis, padding: EdgeInsets.zero, itemCount: ${node.children.length}, separatorBuilder: (BuildContext context, int index) => SizedBox(width: ${horizontal ? spacing : 0}, height: ${horizontal ? 0 : spacing}), itemBuilder: (BuildContext context, int index) {\n'
+            '$indexedChildren${_spaces(indent + 4)}})';
       case 'gridView':
         final int count = _integer(
           node.properties['crossAxisCount'],
@@ -736,14 +1392,13 @@ void main() {
           0,
           120,
         );
-        childList = _emitWidgetList(node.children, indent + 6);
         constructor =
-            'GridView.count(crossAxisCount: $count, crossAxisSpacing: $spacing, mainAxisSpacing: $spacing, padding: EdgeInsets.zero, children: <Widget>[\n'
-            '$childList${_spaces(indent + 4)}])';
+            'GridView.builder(gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: $count, crossAxisSpacing: $spacing, mainAxisSpacing: $spacing), padding: EdgeInsets.zero, itemCount: ${node.children.length}, itemBuilder: (BuildContext context, int index) {\n'
+            '$indexedChildren${_spaces(indent + 4)}})';
       case 'pageView' || 'swipeableStack':
-        childList = _emitWidgetList(node.children, indent + 6);
         constructor =
-            'PageView(children: <Widget>[\n$childList${_spaces(indent + 4)}])';
+            'PageView.builder(itemCount: ${node.children.length}, itemBuilder: (BuildContext context, int index) {\n'
+            '$indexedChildren${_spaces(indent + 4)}})';
       default:
         throw StateError('Unsupported collection widget "${node.type}".');
     }
@@ -752,6 +1407,20 @@ void main() {
         '$inner height: $height,\n'
         '$inner child: $constructor,\n'
         '$pad)';
+  }
+
+  String _emitIndexedChildren(List<BuilderNode> children, int indent) {
+    final String pad = _spaces(indent);
+    final StringBuffer body = StringBuffer()..writeln('${pad}switch (index) {');
+    for (int index = 0; index < children.length; index++) {
+      body.writeln(
+        '${pad}  case $index: return ${_emitNode(children[index], indent + 4)};',
+      );
+    }
+    body
+      ..writeln('${pad}  default: return const SizedBox.shrink();')
+      ..writeln('$pad}');
+    return body.toString();
   }
 
   String _emitSwipeableStack(BuilderNode node, int indent) {
@@ -783,31 +1452,6 @@ void main() {
     return null;
   }
 
-  String _emitSpacedWidgetList(
-    List<BuilderNode> nodes,
-    int indent,
-    double spacing,
-    bool horizontal,
-  ) {
-    final StringBuffer output = StringBuffer();
-    for (int index = 0; index < nodes.length; index++) {
-      output
-        ..write(_spaces(indent))
-        ..write(_emitNode(nodes[index], indent))
-        ..write(',\n');
-      if (index < nodes.length - 1 && spacing > 0) {
-        output
-          ..write(_spaces(indent))
-          ..write(
-            horizontal
-                ? 'SizedBox(width: $spacing),\n'
-                : 'SizedBox(height: $spacing),\n',
-          );
-      }
-    }
-    return output.toString();
-  }
-
   String _boxFit(Object? value) => switch (value) {
     'contain' => 'BoxFit.contain',
     'fill' => 'BoxFit.fill',
@@ -830,6 +1474,28 @@ void main() {
     'arrowForward' => 'Icons.arrow_forward',
     _ => 'Icons.star',
   };
+
+  static const String _httpHelper = r'''
+  Future<http.Response> _sendHttpRequest(
+    String method,
+    Uri uri,
+    Map<String, String> headers,
+    String body,
+  ) async {
+    final http.Client client = http.Client();
+    try {
+      final http.Request request = http.Request(method, uri)
+        ..headers.addAll(headers);
+      if (body.isNotEmpty) request.body = body;
+      final http.StreamedResponse streamed = await client
+          .send(request)
+          .timeout(const Duration(seconds: 30));
+      return await http.Response.fromStream(streamed);
+    } finally {
+      client.close();
+    }
+  }
+''';
 
   static const String _signatureHelper = r'''
 class _LocalSignaturePad extends StatefulWidget {

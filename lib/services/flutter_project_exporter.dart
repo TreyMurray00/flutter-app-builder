@@ -17,7 +17,7 @@ class FlutterProjectExporter {
     final Directory target = Directory(destination).absolute;
     if (await target.exists()) {
       throw FileSystemException(
-        'Choose a new folder path. The destination already exists.',
+        'The export folder already exists. Choose a different parent folder or move it first.',
         target.path,
       );
     }
@@ -75,7 +75,7 @@ class FlutterProjectExporter {
       // scaffold was being generated.
       if (await target.exists()) {
         throw FileSystemException(
-          'The destination folder was created while exporting. Choose a new path.',
+          'The export folder was created while exporting. Choose a different parent folder.',
           target.path,
         );
       }

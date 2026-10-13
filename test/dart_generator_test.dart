@@ -474,7 +474,7 @@ void main() {
 
       expect(source, contains("import 'dart:io';"));
       expect(source, contains('Image.file(File('));
-      expect(source, contains('ListView('));
+      expect(source, contains('ListView.separated('));
       expect(source, contains('_LocalSwipeableStack('));
       expect(
         source,

@@ -1,6 +1,6 @@
 import 'dart:collection';
 
-const int currentSchemaVersion = 4;
+const int currentSchemaVersion = 8;
 
 enum BuilderDropPosition { before, inside, after }
 
@@ -13,10 +13,31 @@ class BuilderDocument {
     this.homePageRoute = '/',
     List<BuilderPage> pages = const <BuilderPage>[],
     List<BuilderVariable> variables = const <BuilderVariable>[],
+    List<BuilderCustomFunction> customFunctions =
+        const <BuilderCustomFunction>[],
+    List<BuilderCustomDataStructure> customDataStructures =
+        const <BuilderCustomDataStructure>[],
+    List<BuilderComponentGroup> componentGroups =
+        const <BuilderComponentGroup>[],
+    this.appTheme = const BuilderTheme(),
+    List<BuilderDatabaseCollection> databaseCollections =
+        const <BuilderDatabaseCollection>[],
     this.initialPageId = 'home',
     this.schemaVersion = currentSchemaVersion,
   }) : pages = List<BuilderPage>.unmodifiable(pages),
-       variables = List<BuilderVariable>.unmodifiable(variables);
+       variables = List<BuilderVariable>.unmodifiable(variables),
+       customFunctions = List<BuilderCustomFunction>.unmodifiable(
+         customFunctions,
+       ),
+       customDataStructures = List<BuilderCustomDataStructure>.unmodifiable(
+         customDataStructures,
+       ),
+       componentGroups = List<BuilderComponentGroup>.unmodifiable(
+         componentGroups,
+       ),
+       databaseCollections = List<BuilderDatabaseCollection>.unmodifiable(
+         databaseCollections,
+       );
 
   final String name;
   final int seedColor;
@@ -28,6 +49,11 @@ class BuilderDocument {
   /// compatibility with older project code and schema version 1 files.
   final List<BuilderPage> pages;
   final List<BuilderVariable> variables;
+  final List<BuilderCustomFunction> customFunctions;
+  final List<BuilderCustomDataStructure> customDataStructures;
+  final List<BuilderComponentGroup> componentGroups;
+  final BuilderTheme appTheme;
+  final List<BuilderDatabaseCollection> databaseCollections;
   final String initialPageId;
   final int schemaVersion;
 
@@ -90,6 +116,11 @@ class BuilderDocument {
     String? homePageRoute,
     List<BuilderPage>? pages,
     List<BuilderVariable>? variables,
+    List<BuilderCustomFunction>? customFunctions,
+    List<BuilderCustomDataStructure>? customDataStructures,
+    List<BuilderComponentGroup>? componentGroups,
+    BuilderTheme? appTheme,
+    List<BuilderDatabaseCollection>? databaseCollections,
     String? initialPageId,
     int? schemaVersion,
   }) {
@@ -101,6 +132,11 @@ class BuilderDocument {
       homePageRoute: homePageRoute ?? this.homePageRoute,
       pages: pages ?? this.pages,
       variables: variables ?? this.variables,
+      customFunctions: customFunctions ?? this.customFunctions,
+      customDataStructures: customDataStructures ?? this.customDataStructures,
+      componentGroups: componentGroups ?? this.componentGroups,
+      appTheme: appTheme ?? this.appTheme,
+      databaseCollections: databaseCollections ?? this.databaseCollections,
       initialPageId: initialPageId ?? this.initialPageId,
       schemaVersion: schemaVersion ?? this.schemaVersion,
     );
@@ -109,11 +145,27 @@ class BuilderDocument {
   Map<String, Object?> toJson() => <String, Object?>{
     'schemaVersion': schemaVersion,
     'name': name,
-    'theme': <String, Object?>{'seedColor': seedColor},
+    'theme': <String, Object?>{'seedColor': seedColor, ...appTheme.toJson()},
     'root': root.toJson(),
     'pages': allPages.map((BuilderPage page) => page.toJson()).toList(),
     'variables':
         variables.map((BuilderVariable variable) => variable.toJson()).toList(),
+    'customFunctions':
+        customFunctions
+            .map((BuilderCustomFunction function) => function.toJson())
+            .toList(),
+    'customDataStructures':
+        customDataStructures
+            .map((BuilderCustomDataStructure structure) => structure.toJson())
+            .toList(),
+    'componentGroups':
+        componentGroups
+            .map((BuilderComponentGroup group) => group.toJson())
+            .toList(),
+    'databaseCollections':
+        databaseCollections
+            .map((BuilderDatabaseCollection collection) => collection.toJson())
+            .toList(),
     'initialPageId': initialPageId,
   };
 
@@ -139,6 +191,14 @@ class BuilderDocument {
 
     final List<BuilderPage> parsedPages = <BuilderPage>[];
     final List<BuilderVariable> parsedVariables = <BuilderVariable>[];
+    final List<BuilderCustomFunction> parsedFunctions =
+        <BuilderCustomFunction>[];
+    final List<BuilderCustomDataStructure> parsedDataStructures =
+        <BuilderCustomDataStructure>[];
+    final List<BuilderComponentGroup> parsedComponentGroups =
+        <BuilderComponentGroup>[];
+    final List<BuilderDatabaseCollection> parsedDatabaseCollections =
+        <BuilderDatabaseCollection>[];
     BuilderNode homeRoot = BuilderNode.fromJson(
       Map<String, Object?>.from(rawRoot),
     );
@@ -173,6 +233,62 @@ class BuilderDocument {
         );
       }
     }
+    final Object? rawFunctions = json['customFunctions'];
+    if (rawFunctions is List) {
+      for (final Object? rawFunction in rawFunctions) {
+        if (rawFunction is! Map) {
+          throw const FormatException(
+            'Custom function entries must be objects.',
+          );
+        }
+        parsedFunctions.add(
+          BuilderCustomFunction.fromJson(
+            Map<String, Object?>.from(rawFunction),
+          ),
+        );
+      }
+    }
+    final Object? rawDataStructures = json['customDataStructures'];
+    if (rawDataStructures is List) {
+      for (final Object? rawStructure in rawDataStructures) {
+        if (rawStructure is! Map) {
+          throw const FormatException(
+            'Custom data structure entries must be objects.',
+          );
+        }
+        parsedDataStructures.add(
+          BuilderCustomDataStructure.fromJson(
+            Map<String, Object?>.from(rawStructure),
+          ),
+        );
+      }
+    }
+    final Object? rawGroups = json['componentGroups'];
+    if (rawGroups is List) {
+      for (final Object? rawGroup in rawGroups) {
+        if (rawGroup is! Map) {
+          throw const FormatException(
+            'Component group entries must be objects.',
+          );
+        }
+        parsedComponentGroups.add(
+          BuilderComponentGroup.fromJson(Map<String, Object?>.from(rawGroup)),
+        );
+      }
+    }
+    final Object? rawCollections = json['databaseCollections'];
+    if (rawCollections is List) {
+      for (final Object? rawCollection in rawCollections) {
+        if (rawCollection is! Map) {
+          throw const FormatException('Database collections must be objects.');
+        }
+        parsedDatabaseCollections.add(
+          BuilderDatabaseCollection.fromJson(
+            Map<String, Object?>.from(rawCollection),
+          ),
+        );
+      }
+    }
 
     return BuilderDocument(
       // Schema 1 documents are accepted and upgraded when they are next saved.
@@ -185,6 +301,11 @@ class BuilderDocument {
       homePageRoute: homeRoute,
       pages: parsedPages,
       variables: parsedVariables,
+      customFunctions: parsedFunctions,
+      customDataStructures: parsedDataStructures,
+      componentGroups: parsedComponentGroups,
+      appTheme: BuilderTheme.fromJson(theme),
+      databaseCollections: parsedDatabaseCollections,
       initialPageId:
           json['initialPageId'] is String &&
                   <String>{
@@ -193,6 +314,125 @@ class BuilderDocument {
                   }.contains(json['initialPageId'])
               ? json['initialPageId']! as String
               : 'home',
+    );
+  }
+}
+
+class BuilderTheme {
+  const BuilderTheme({
+    this.brightness = 'light',
+    this.fontFamily = '',
+    this.cornerRadius = 12,
+    this.backgroundColor,
+    this.textColor,
+  });
+
+  /// `system` follows the device; existing documents default to `light`.
+  final String brightness;
+  final String fontFamily;
+  final double cornerRadius;
+  final int? backgroundColor;
+  final int? textColor;
+
+  BuilderTheme copyWith({
+    String? brightness,
+    String? fontFamily,
+    double? cornerRadius,
+    int? backgroundColor,
+    int? textColor,
+    bool clearBackgroundColor = false,
+    bool clearTextColor = false,
+  }) => BuilderTheme(
+    brightness: brightness ?? this.brightness,
+    fontFamily: fontFamily ?? this.fontFamily,
+    cornerRadius: cornerRadius ?? this.cornerRadius,
+    backgroundColor:
+        clearBackgroundColor ? null : backgroundColor ?? this.backgroundColor,
+    textColor: clearTextColor ? null : textColor ?? this.textColor,
+  );
+
+  Map<String, Object?> toJson() => <String, Object?>{
+    'brightness': brightness,
+    'fontFamily': fontFamily,
+    'cornerRadius': cornerRadius,
+    if (backgroundColor != null) 'backgroundColor': backgroundColor,
+    if (textColor != null) 'textColor': textColor,
+  };
+
+  factory BuilderTheme.fromJson(Map<String, Object?> json) => BuilderTheme(
+    brightness:
+        <String>{'light', 'dark', 'system'}.contains(json['brightness'])
+            ? json['brightness']! as String
+            : 'light',
+    fontFamily:
+        json['fontFamily'] is String ? json['fontFamily']! as String : '',
+    cornerRadius:
+        json['cornerRadius'] is num
+            ? (json['cornerRadius']! as num)
+                .toDouble()
+                .clamp(0.0, 48.0)
+                .toDouble()
+            : 12,
+    backgroundColor:
+        json['backgroundColor'] is int ? json['backgroundColor']! as int : null,
+    textColor: json['textColor'] is int ? json['textColor']! as int : null,
+  );
+}
+
+class BuilderDatabaseCollection {
+  BuilderDatabaseCollection({
+    required this.id,
+    required this.name,
+    List<Map<String, Object?>> seedRecords = const <Map<String, Object?>>[],
+  }) : seedRecords = List<Map<String, Object?>>.unmodifiable(
+         seedRecords.map(
+           (Map<String, Object?> record) =>
+               Map<String, Object?>.unmodifiable(record),
+         ),
+       );
+
+  final String id;
+  final String name;
+  final List<Map<String, Object?>> seedRecords;
+
+  BuilderDatabaseCollection copyWith({
+    String? name,
+    List<Map<String, Object?>>? seedRecords,
+  }) => BuilderDatabaseCollection(
+    id: id,
+    name: name ?? this.name,
+    seedRecords: seedRecords ?? this.seedRecords,
+  );
+
+  Map<String, Object?> toJson() => <String, Object?>{
+    'id': id,
+    'name': name,
+    'seedRecords': seedRecords,
+  };
+
+  factory BuilderDatabaseCollection.fromJson(Map<String, Object?> json) {
+    final Object? rawRecords = json['seedRecords'];
+    if (json['id'] is! String || json['name'] is! String) {
+      throw const FormatException(
+        'A database collection needs an id and name.',
+      );
+    }
+    if (rawRecords != null && rawRecords is! List) {
+      throw const FormatException('Seed records must be a list.');
+    }
+    final List<Map<String, Object?>> records = <Map<String, Object?>>[];
+    if (rawRecords is List) {
+      for (final Object? record in rawRecords) {
+        if (record is! Map) {
+          throw const FormatException('Each seed record must be an object.');
+        }
+        records.add(Map<String, Object?>.from(record));
+      }
+    }
+    return BuilderDatabaseCollection(
+      id: json['id']! as String,
+      name: json['name']! as String,
+      seedRecords: records,
     );
   }
 }
@@ -322,6 +562,160 @@ class BuilderVariable {
   }
 }
 
+class BuilderCustomFunction {
+  BuilderCustomFunction({
+    required this.id,
+    required this.name,
+    this.body = '',
+    List<Map<String, Object?>> actions = const <Map<String, Object?>>[],
+  }) : actions = List<Map<String, Object?>>.unmodifiable(
+         actions.map(
+           (Map<String, Object?> action) =>
+               Map<String, Object?>.unmodifiable(action),
+         ),
+       );
+
+  final String id;
+  final String name;
+  final String body;
+  final List<Map<String, Object?>> actions;
+
+  BuilderCustomFunction copyWith({
+    String? name,
+    String? body,
+    List<Map<String, Object?>>? actions,
+  }) => BuilderCustomFunction(
+    id: id,
+    name: name ?? this.name,
+    body: body ?? this.body,
+    actions: actions ?? this.actions,
+  );
+
+  Map<String, Object?> toJson() => <String, Object?>{
+    'id': id,
+    'name': name,
+    'body': body,
+    'actions': actions,
+  };
+
+  factory BuilderCustomFunction.fromJson(Map<String, Object?> json) {
+    final Object? rawBody = json['body'];
+    final Object? rawActions = json['actions'];
+    if (json['id'] is! String || json['name'] is! String) {
+      throw const FormatException(
+        'A custom function is missing its id or name.',
+      );
+    }
+    if (rawBody != null && rawBody is! String) {
+      throw const FormatException('Custom function body must be text.');
+    }
+    if (rawActions != null && rawActions is! List) {
+      throw const FormatException('Custom function actions must be a list.');
+    }
+    final List<Map<String, Object?>> actions = <Map<String, Object?>>[];
+    if (rawActions is List) {
+      for (final Object? rawAction in rawActions) {
+        if (rawAction is! Map) {
+          throw const FormatException(
+            'Custom function actions must be objects.',
+          );
+        }
+        actions.add(<String, Object?>{
+          for (final MapEntry<Object?, Object?> entry in rawAction.entries)
+            entry.key.toString(): entry.value,
+        });
+      }
+    }
+    return BuilderCustomFunction(
+      id: json['id']! as String,
+      name: json['name']! as String,
+      body: rawBody is String ? rawBody : '',
+      actions: actions,
+    );
+  }
+}
+
+/// A Dart type declaration available to custom functions and generated apps.
+class BuilderCustomDataStructure {
+  const BuilderCustomDataStructure({
+    required this.id,
+    required this.name,
+    required this.body,
+  });
+
+  final String id;
+  final String name;
+  final String body;
+
+  BuilderCustomDataStructure copyWith({String? name, String? body}) =>
+      BuilderCustomDataStructure(
+        id: id,
+        name: name ?? this.name,
+        body: body ?? this.body,
+      );
+
+  Map<String, Object?> toJson() => <String, Object?>{
+    'id': id,
+    'name': name,
+    'body': body,
+  };
+
+  factory BuilderCustomDataStructure.fromJson(Map<String, Object?> json) {
+    if (json['id'] is! String ||
+        json['name'] is! String ||
+        json['body'] is! String) {
+      throw const FormatException(
+        'A custom data structure is missing its id, name, or Dart declaration.',
+      );
+    }
+    return BuilderCustomDataStructure(
+      id: json['id']! as String,
+      name: json['name']! as String,
+      body: json['body']! as String,
+    );
+  }
+}
+
+/// A saved component subtree that can be inserted again as an editable group.
+class BuilderComponentGroup {
+  const BuilderComponentGroup({
+    required this.id,
+    required this.name,
+    required this.root,
+  });
+
+  final String id;
+  final String name;
+  final BuilderNode root;
+
+  BuilderComponentGroup copyWith({String? name, BuilderNode? root}) =>
+      BuilderComponentGroup(
+        id: id,
+        name: name ?? this.name,
+        root: root ?? this.root,
+      );
+
+  Map<String, Object?> toJson() => <String, Object?>{
+    'id': id,
+    'name': name,
+    'root': root.toJson(),
+  };
+
+  factory BuilderComponentGroup.fromJson(Map<String, Object?> json) {
+    final Object? rawRoot = json['root'];
+    if (json['id'] is! String || json['name'] is! String || rawRoot is! Map) {
+      throw const FormatException(
+        'A component group is missing its id, name, or root component.',
+      );
+    }
+    return BuilderComponentGroup(
+      id: json['id']! as String,
+      name: json['name']! as String,
+      root: BuilderNode.fromJson(Map<String, Object?>.from(rawRoot)),
+    );
+  }
+}
+
 class BuilderNode {
   BuilderNode({
     required this.id,
@@ -347,7 +741,8 @@ class BuilderNode {
       type == 'pageView' ||
       type == 'swipeableStack' ||
       type == 'card' ||
-      type == 'padding';
+      type == 'padding' ||
+      type == 'componentGroup';
 
   Map<String, Object?> toJson() => <String, Object?>{
     'id': id,

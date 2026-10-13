@@ -1,35 +1,53 @@
 import 'dart:convert';
 
+import 'package:analyzer/dart/analysis/utilities.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_code_editor/flutter_code_editor.dart';
+import 'package:flutter_highlight/themes/atom-one-dark.dart';
+import 'package:flutter_highlight/themes/github.dart';
+import 'package:highlight/languages/dart.dart' as dart_language;
 
 import '../models/builder_action.dart';
 import '../models/builder_document.dart';
 import 'color_picker_dialog.dart';
+import 'editor_palette.dart';
 
 class InspectorPanel extends StatefulWidget {
   const InspectorPanel({
     required this.node,
     required this.seedColor,
+    required this.appTheme,
     required this.onSetProperty,
     required this.onSetProperties,
     required this.onSetSeedColor,
+    required this.onSetAppTheme,
     required this.onDeleteNode,
     this.onCreateVariable,
     this.pages = const <BuilderPage>[],
     this.variables = const <BuilderVariable>[],
+    this.customFunctions = const <BuilderCustomFunction>[],
+    this.databaseCollections = const <BuilderDatabaseCollection>[],
+    this.onSetCustomFunctions,
+    this.onCreateComponentGroup,
     super.key,
   });
 
   final BuilderNode? node;
   final int seedColor;
+  final BuilderTheme appTheme;
   final void Function(String nodeId, String key, Object? value) onSetProperty;
   final void Function(String nodeId, Map<String, Object?> values)
   onSetProperties;
   final ValueChanged<int> onSetSeedColor;
+  final ValueChanged<BuilderTheme> onSetAppTheme;
   final VoidCallback onDeleteNode;
   final VoidCallback? onCreateVariable;
   final List<BuilderPage> pages;
   final List<BuilderVariable> variables;
+  final List<BuilderCustomFunction> customFunctions;
+  final List<BuilderDatabaseCollection> databaseCollections;
+  final ValueChanged<List<BuilderCustomFunction>>? onSetCustomFunctions;
+  final Future<void> Function(BuilderNode node)? onCreateComponentGroup;
 
   @override
   State<InspectorPanel> createState() => _InspectorPanelState();
@@ -45,6 +63,9 @@ class _InspectorPanelState extends State<InspectorPanel> {
     'padding': true,
     'margin': true,
   };
+  List<Map<String, Object?>>? _customFunctionActionsDraft;
+  String? _customFunctionDraftId;
+  StateSetter? _customFunctionDialogSetState;
   String _query = '';
 
   @override
@@ -117,28 +138,52 @@ class _InspectorPanelState extends State<InspectorPanel> {
           ),
           const SizedBox(height: 10),
           if (node == null)
-            const Text(
+            Text(
               'Select an object on the canvas or in the widget tree to edit it.',
-              style: TextStyle(color: Color(0xFF737B8A), fontSize: 12),
+              style: TextStyle(
+                color: EditorPalette.mutedText(context),
+                fontSize: 12,
+              ),
             )
           else ...<Widget>[
             _selectedObjectCard(node),
             const SizedBox(height: 10),
+            if (!<String>{
+              'scaffold',
+              'appBar',
+              'floatingActionButton',
+            }.contains(node.type)) ...<Widget>[
+              OutlinedButton.icon(
+                onPressed:
+                    widget.onCreateComponentGroup == null
+                        ? null
+                        : () => widget.onCreateComponentGroup!(node),
+                icon: const Icon(Icons.create_new_folder_outlined, size: 16),
+                label: const Text('Save as reusable group'),
+                style: OutlinedButton.styleFrom(
+                  visualDensity: VisualDensity.compact,
+                  textStyle: const TextStyle(fontSize: 11),
+                ),
+              ),
+              const SizedBox(height: 10),
+            ],
             _searchField(),
             const SizedBox(height: 5),
             ..._propertiesFor(node),
           ],
-          if (_matches('theme primary color')) ...<Widget>[
+          if (_matches(
+            'theme primary color dark light font radius background text',
+          )) ...<Widget>[
             const Divider(height: 20),
             ExpansionTile(
               key: const ValueKey<String>('inspector-theme'),
               initiallyExpanded: _query.isNotEmpty,
               tilePadding: EdgeInsets.zero,
               childrenPadding: const EdgeInsets.fromLTRB(8, 0, 8, 12),
-              leading: const Icon(
+              leading: Icon(
                 Icons.palette_outlined,
                 size: 17,
-                color: Color(0xFF6E7482),
+                color: EditorPalette.mutedText(context),
               ),
               title: const Text('Theme'),
               children: <Widget>[
@@ -152,11 +197,124 @@ class _InspectorPanelState extends State<InspectorPanel> {
                 const SizedBox(height: 7),
                 Text(
                   '#${widget.seedColor.toRadixString(16).substring(2).toUpperCase()}',
-                  style: const TextStyle(
-                    color: Color(0xFF737B8A),
+                  style: TextStyle(
+                    color: EditorPalette.mutedText(context),
                     fontSize: 10,
                   ),
                 ),
+                const SizedBox(height: 12),
+                _fieldLabel('App appearance'),
+                const SizedBox(height: 6),
+                DropdownButtonFormField<String>(
+                  initialValue: widget.appTheme.brightness,
+                  isExpanded: true,
+                  decoration: _inputDecoration(),
+                  items: const <DropdownMenuItem<String>>[
+                    DropdownMenuItem(value: 'light', child: Text('Light')),
+                    DropdownMenuItem(value: 'dark', child: Text('Dark')),
+                    DropdownMenuItem(
+                      value: 'system',
+                      child: Text('Follow device'),
+                    ),
+                  ],
+                  onChanged: (String? value) {
+                    if (value != null) {
+                      widget.onSetAppTheme(
+                        widget.appTheme.copyWith(brightness: value),
+                      );
+                    }
+                  },
+                ),
+                const SizedBox(height: 10),
+                TextFormField(
+                  key: ValueKey<String>(
+                    'theme-font-${widget.appTheme.fontFamily}',
+                  ),
+                  initialValue: widget.appTheme.fontFamily,
+                  decoration: _inputDecoration(
+                    labelText: 'Font family',
+                    hintText: 'System default',
+                  ),
+                  onFieldSubmitted:
+                      (String value) => widget.onSetAppTheme(
+                        widget.appTheme.copyWith(fontFamily: value.trim()),
+                      ),
+                ),
+                const SizedBox(height: 10),
+                _fieldLabel('Corner radius'),
+                const SizedBox(height: 6),
+                TextFormField(
+                  key: ValueKey<String>(
+                    'theme-radius-${widget.appTheme.cornerRadius}',
+                  ),
+                  initialValue: widget.appTheme.cornerRadius.toStringAsFixed(0),
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  decoration: _inputDecoration(hintText: '0–48'),
+                  onFieldSubmitted: (String value) {
+                    final double? radius = double.tryParse(value.trim());
+                    if (radius != null) {
+                      widget.onSetAppTheme(
+                        widget.appTheme.copyWith(
+                          cornerRadius: radius.clamp(0.0, 48.0).toDouble(),
+                        ),
+                      );
+                    }
+                  },
+                ),
+                SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Custom background'),
+                  value: widget.appTheme.backgroundColor != null,
+                  onChanged:
+                      (bool enabled) => widget.onSetAppTheme(
+                        enabled
+                            ? widget.appTheme.copyWith(
+                              backgroundColor:
+                                  widget.appTheme.brightness == 'dark'
+                                      ? 0xFF14151B
+                                      : 0xFFFFFFFF,
+                            )
+                            : widget.appTheme.copyWith(
+                              clearBackgroundColor: true,
+                            ),
+                      ),
+                ),
+                if (widget.appTheme.backgroundColor case final int color)
+                  ColorPickerField(
+                    color: Color(color),
+                    onChanged:
+                        (Color value) => widget.onSetAppTheme(
+                          widget.appTheme.copyWith(
+                            backgroundColor: value.toARGB32(),
+                          ),
+                        ),
+                  ),
+                SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Custom text color'),
+                  value: widget.appTheme.textColor != null,
+                  onChanged:
+                      (bool enabled) => widget.onSetAppTheme(
+                        enabled
+                            ? widget.appTheme.copyWith(
+                              textColor:
+                                  widget.appTheme.brightness == 'dark'
+                                      ? 0xFFFFFFFF
+                                      : 0xFF20242C,
+                            )
+                            : widget.appTheme.copyWith(clearTextColor: true),
+                      ),
+                ),
+                if (widget.appTheme.textColor case final int color)
+                  ColorPickerField(
+                    color: Color(color),
+                    onChanged:
+                        (Color value) => widget.onSetAppTheme(
+                          widget.appTheme.copyWith(textColor: value.toARGB32()),
+                        ),
+                  ),
               ],
             ),
           ],
@@ -179,31 +337,38 @@ class _InspectorPanelState extends State<InspectorPanel> {
   );
 
   Widget _selectedObjectCard(BuilderNode node) {
+    final String label =
+        node.type == 'componentGroup' && node.properties['groupName'] is String
+            ? node.properties['groupName']! as String
+            : _typeLabel(node.type);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
       decoration: BoxDecoration(
-        color: const Color(0xFFF5F6F9),
+        color: EditorPalette.surfaceRaised(context),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFE4E6EB)),
+        border: Border.all(color: EditorPalette.border(context)),
       ),
       child: Row(
         children: <Widget>[
-          const Icon(
+          Icon(
             Icons.widgets_outlined,
             size: 17,
-            color: Color(0xFF6750A4),
+            color: EditorPalette.primary(context),
           ),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              _typeLabel(node.type),
+              label,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
             ),
           ),
           Text(
             node.id,
-            style: const TextStyle(fontSize: 9, color: Color(0xFF8A909D)),
+            style: TextStyle(
+              fontSize: 9,
+              color: EditorPalette.mutedText(context),
+            ),
           ),
         ],
       ),
@@ -242,6 +407,17 @@ class _InspectorPanelState extends State<InspectorPanel> {
     add('Margin', 'top right bottom left spacing outside', <Widget>[
       _spacingEditor(node, 'margin'),
     ], expanded: node.type == 'container');
+    if (!<String>{
+      'scaffold',
+      'appBar',
+      'floatingActionButton',
+    }.contains(node.type)) {
+      add(
+        'Responsive sizing',
+        'width height max full fill quarter half three-quarter fraction size',
+        _sizeModeProperties(node),
+      );
+    }
 
     if (node.type == 'container') {
       add(
@@ -441,8 +617,20 @@ class _InspectorPanelState extends State<InspectorPanel> {
       add('Children', 'nested child objects layout', <Widget>[
         Text(
           'This container holds ${node.children.length} child object(s).',
-          style: const TextStyle(
-            color: Color(0xFF737B8A),
+          style: TextStyle(
+            color: EditorPalette.mutedText(context),
+            fontSize: 11,
+            height: 1.4,
+          ),
+        ),
+      ], expanded: true);
+    }
+    if (node.type == 'componentGroup') {
+      add('Group contents', 'reusable saved group components', <Widget>[
+        Text(
+          'This reusable group contains ${node.children.length} top-level component(s). Changes to this inserted copy stay with this instance.',
+          style: TextStyle(
+            color: EditorPalette.mutedText(context),
             fontSize: 11,
             height: 1.4,
           ),
@@ -450,12 +638,15 @@ class _InspectorPanelState extends State<InspectorPanel> {
       ], expanded: true);
     }
     if (sections.isEmpty) {
-      return const <Widget>[
+      return <Widget>[
         Padding(
-          padding: EdgeInsets.symmetric(vertical: 18),
+          padding: const EdgeInsets.symmetric(vertical: 18),
           child: Text(
             'No properties match this search.',
-            style: TextStyle(color: Color(0xFF737B8A), fontSize: 11),
+            style: TextStyle(
+              color: EditorPalette.mutedText(context),
+              fontSize: 11,
+            ),
           ),
         ),
       ];
@@ -474,8 +665,8 @@ class _InspectorPanelState extends State<InspectorPanel> {
     tilePadding: const EdgeInsets.symmetric(horizontal: 3),
     childrenPadding: const EdgeInsets.fromLTRB(5, 0, 5, 12),
     visualDensity: VisualDensity.compact,
-    iconColor: const Color(0xFF747B89),
-    collapsedIconColor: const Color(0xFF747B89),
+    iconColor: EditorPalette.mutedText(context),
+    collapsedIconColor: EditorPalette.mutedText(context),
     title: Text(
       title,
       style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
@@ -488,7 +679,7 @@ class _InspectorPanelState extends State<InspectorPanel> {
       key: ValueKey<String>('${node.id}-visible'),
       contentPadding: EdgeInsets.zero,
       dense: true,
-      title: const Text('Visible', style: TextStyle(fontSize: 11)),
+      title: const Text('Visible', style: const TextStyle(fontSize: 11)),
       value: node.properties['visible'] != false,
       onChanged:
           (bool value) => widget.onSetProperty(node.id, 'visible', value),
@@ -547,9 +738,9 @@ class _InspectorPanelState extends State<InspectorPanel> {
     return Container(
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
-        color: const Color(0xFFF8F9FB),
+        color: EditorPalette.surfaceRaised(context),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFE1E4EA)),
+        border: Border.all(color: EditorPalette.border(context)),
       ),
       child: Column(
         children: <Widget>[
@@ -575,8 +766,8 @@ class _InspectorPanelState extends State<InspectorPanel> {
                   size: 16,
                   color:
                       linked
-                          ? const Color(0xFF6750A4)
-                          : const Color(0xFF737B8A),
+                          ? EditorPalette.primary(context)
+                          : EditorPalette.mutedText(context),
                 ),
               ),
               sideField('right'),
@@ -587,7 +778,10 @@ class _InspectorPanelState extends State<InspectorPanel> {
           const SizedBox(height: 5),
           Text(
             linked ? 'All sides linked' : 'Top · Right · Bottom · Left',
-            style: const TextStyle(fontSize: 9, color: Color(0xFF828997)),
+            style: TextStyle(
+              fontSize: 9,
+              color: EditorPalette.mutedText(context),
+            ),
           ),
         ],
       ),
@@ -640,6 +834,55 @@ class _InspectorPanelState extends State<InspectorPanel> {
     ),
   ];
 
+  List<Widget> _sizeModeProperties(BuilderNode node) => <Widget>[
+    Row(
+      children: <Widget>[
+        Expanded(child: _sizeModeDropdown(node, 'widthMode', 'Width behavior')),
+        const SizedBox(width: 8),
+        Expanded(
+          child: _sizeModeDropdown(node, 'heightMode', 'Height behavior'),
+        ),
+      ],
+    ),
+    const SizedBox(height: 6),
+    Text(
+      'Fill and fractional sizes use the available parent space.',
+      style: TextStyle(fontSize: 10, color: EditorPalette.mutedText(context)),
+    ),
+  ];
+
+  Widget _sizeModeDropdown(BuilderNode node, String property, String label) =>
+      DropdownButtonFormField<String>(
+        key: ValueKey<String>('${node.id}-$property'),
+        initialValue: _sizeMode(node.properties[property]),
+        isExpanded: true,
+        decoration: _inputDecoration(labelText: label),
+        items: const <DropdownMenuItem<String>>[
+          DropdownMenuItem(value: 'fixed', child: Text('Component size')),
+          DropdownMenuItem(value: 'max', child: Text('Max / fill')),
+          DropdownMenuItem(value: 'quarter', child: Text('One quarter')),
+          DropdownMenuItem(value: 'half', child: Text('Half')),
+          DropdownMenuItem(
+            value: 'threeQuarter',
+            child: Text('Three quarters'),
+          ),
+        ],
+        onChanged: (String? value) {
+          if (value != null) widget.onSetProperty(node.id, property, value);
+        },
+      );
+
+  String _sizeMode(Object? value) =>
+      const <String>{
+            'fixed',
+            'max',
+            'quarter',
+            'half',
+            'threeQuarter',
+          }.contains(value)
+          ? value! as String
+          : 'fixed';
+
   List<Widget> _cardProperties(BuilderNode node) => <Widget>[
     _fieldLabel('Corner radius'),
     const SizedBox(height: 5),
@@ -665,8 +908,8 @@ class _InspectorPanelState extends State<InspectorPanel> {
   List<Widget> _childrenSummary(BuilderNode node) => <Widget>[
     Text(
       'This ${_typeLabel(node.type).toLowerCase()} holds ${node.children.length} child object(s).',
-      style: const TextStyle(
-        color: Color(0xFF737B8A),
+      style: TextStyle(
+        color: EditorPalette.mutedText(context),
         fontSize: 11,
         height: 1.4,
       ),
@@ -726,7 +969,7 @@ class _InspectorPanelState extends State<InspectorPanel> {
     SwitchListTile.adaptive(
       contentPadding: EdgeInsets.zero,
       dense: true,
-      title: const Text('Loop cards', style: TextStyle(fontSize: 11)),
+      title: const Text('Loop cards', style: const TextStyle(fontSize: 11)),
       value: node.properties['loop'] == true,
       onChanged: (bool value) => widget.onSetProperty(node.id, 'loop', value),
     ),
@@ -882,11 +1125,11 @@ class _InspectorPanelState extends State<InspectorPanel> {
     _fieldLabel('Hint text'),
     const SizedBox(height: 5),
     _textField(node, 'hintText'),
-    const Padding(
-      padding: EdgeInsets.only(top: 6),
+    Padding(
+      padding: const EdgeInsets.only(top: 6),
       child: Text(
         r'Insert app variables with ${variableName} or $variableName.',
-        style: TextStyle(fontSize: 10, color: Color(0xFF737B8A)),
+        style: TextStyle(fontSize: 10, color: EditorPalette.mutedText(context)),
       ),
     ),
   ];
@@ -898,7 +1141,10 @@ class _InspectorPanelState extends State<InspectorPanel> {
     SwitchListTile.adaptive(
       contentPadding: EdgeInsets.zero,
       dense: true,
-      title: const Text('Initially selected', style: TextStyle(fontSize: 11)),
+      title: const Text(
+        'Initially selected',
+        style: const TextStyle(fontSize: 11),
+      ),
       value: node.properties['value'] == true,
       onChanged: (bool value) => widget.onSetProperty(node.id, 'value', value),
     ),
@@ -1080,11 +1326,11 @@ class _InspectorPanelState extends State<InspectorPanel> {
     _fieldLabel('Text'),
     const SizedBox(height: 6),
     _textField(node, 'text', hintText: 'Enter text', minLines: 2, maxLines: 4),
-    const Padding(
-      padding: EdgeInsets.only(top: 6),
+    Padding(
+      padding: const EdgeInsets.only(top: 6),
       child: Text(
         r'Insert app variables with ${variableName} or $variableName.',
-        style: TextStyle(fontSize: 10, color: Color(0xFF737B8A)),
+        style: TextStyle(fontSize: 10, color: EditorPalette.mutedText(context)),
       ),
     ),
   ];
@@ -1147,12 +1393,12 @@ class _InspectorPanelState extends State<InspectorPanel> {
     final List<Map<String, Object?>> actions = BuilderAction.forNode(node);
     return <Widget>[
       if (actions.isEmpty)
-        const Padding(
-          padding: EdgeInsets.only(bottom: 10),
+        Padding(
+          padding: const EdgeInsets.only(bottom: 10),
           child: Text(
             'No actions yet. Add a step to define what happens when this widget is pressed.',
             style: TextStyle(
-              color: Color(0xFF737B8A),
+              color: EditorPalette.mutedText(context),
               fontSize: 11,
               height: 1.4,
             ),
@@ -1169,7 +1415,7 @@ class _InspectorPanelState extends State<InspectorPanel> {
                 List<Map<String, Object?>>.of(BuilderAction.forNode(node));
             int sequence = next.length + 1;
             final Set<String> ids =
-                next
+                _allActions(node)
                     .map(
                       (Map<String, Object?> action) =>
                           action['id'] as String? ?? '',
@@ -1180,7 +1426,7 @@ class _InspectorPanelState extends State<InspectorPanel> {
               sequence++;
               id = '${node.id}_action_$sequence';
             }
-            next.add(BuilderAction.create(id, type));
+            next.add(_createAction(id, type));
             widget.onSetProperty(node.id, 'actions', next);
           },
           itemBuilder:
@@ -1257,28 +1503,137 @@ class _InspectorPanelState extends State<InspectorPanel> {
                     title: Text('Update another widget'),
                   ),
                 ),
+                PopupMenuItem<String>(
+                  value: 'conditional',
+                  child: ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.account_tree_outlined, size: 17),
+                    title: Text('If / else'),
+                  ),
+                ),
+                PopupMenuItem<String>(
+                  value: 'loop',
+                  child: ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.repeat, size: 17),
+                    title: Text('Repeat actions'),
+                  ),
+                ),
+                PopupMenuItem<String>(
+                  value: 'httpRequest',
+                  child: ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.language, size: 17),
+                    title: Text('HTTP request'),
+                  ),
+                ),
+                PopupMenuItem<String>(
+                  value: 'customFunction',
+                  child: ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.functions, size: 17),
+                    title: Text('Run custom function'),
+                  ),
+                ),
               ],
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
             decoration: BoxDecoration(
-              color: const Color(0xFFEDE9F8),
+              color: EditorPalette.primaryContainer(context),
               borderRadius: BorderRadius.circular(7),
             ),
-            child: const Row(
+            child: Row(
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
-                Icon(Icons.add, size: 15, color: Color(0xFF6750A4)),
-                SizedBox(width: 5),
+                Icon(
+                  Icons.add,
+                  size: 15,
+                  color: EditorPalette.primary(context),
+                ),
+                const SizedBox(width: 5),
                 Text(
                   'Add action',
                   style: TextStyle(
-                    color: Color(0xFF6750A4),
+                    color: EditorPalette.primary(context),
                     fontSize: 11,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
               ],
             ),
+          ),
+        ),
+      ),
+      if (widget.customFunctions.isNotEmpty) ...<Widget>[
+        const SizedBox(height: 10),
+        _fieldLabel('Custom functions'),
+        const SizedBox(height: 4),
+        for (final BuilderCustomFunction function in widget.customFunctions)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 3),
+            child: Row(
+              children: <Widget>[
+                Icon(
+                  Icons.functions,
+                  size: 14,
+                  color: EditorPalette.mutedText(context),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    function.name,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 11),
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Edit custom function',
+                  visualDensity: VisualDensity.compact,
+                  constraints: const BoxConstraints.tightFor(
+                    width: 28,
+                    height: 28,
+                  ),
+                  padding: EdgeInsets.zero,
+                  onPressed: () => _editCustomFunction(node, function),
+                  icon: const Icon(Icons.edit_outlined, size: 15),
+                ),
+                IconButton(
+                  tooltip: 'Remove custom function',
+                  visualDensity: VisualDensity.compact,
+                  constraints: const BoxConstraints.tightFor(
+                    width: 28,
+                    height: 28,
+                  ),
+                  padding: EdgeInsets.zero,
+                  onPressed:
+                      () => widget.onSetCustomFunctions?.call(
+                        widget.customFunctions
+                            .where(
+                              (BuilderCustomFunction item) =>
+                                  item.id != function.id,
+                            )
+                            .toList(),
+                      ),
+                  icon: const Icon(Icons.delete_outline, size: 15),
+                ),
+              ],
+            ),
+          ),
+      ],
+      const SizedBox(height: 5),
+      Align(
+        alignment: Alignment.centerLeft,
+        child: TextButton.icon(
+          onPressed: () => _editCustomFunction(node),
+          icon: const Icon(Icons.functions, size: 15),
+          label: const Text('Create custom function'),
+          style: TextButton.styleFrom(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+            textStyle: const TextStyle(fontSize: 10),
           ),
         ),
       ),
@@ -1290,11 +1645,14 @@ class _InspectorPanelState extends State<InspectorPanel> {
     final List<Widget> rows = <Widget>[];
     if (widget.variables.isEmpty) {
       rows.addAll(<Widget>[
-        const Padding(
-          padding: EdgeInsets.only(bottom: 7),
+        Padding(
+          padding: const EdgeInsets.only(bottom: 7),
           child: Text(
             'Create an app variable to bind this widget to changing state.',
-            style: TextStyle(fontSize: 10, color: Color(0xFF737B8A)),
+            style: TextStyle(
+              fontSize: 10,
+              color: EditorPalette.mutedText(context),
+            ),
           ),
         ),
         Align(
@@ -1384,8 +1742,8 @@ class _InspectorPanelState extends State<InspectorPanel> {
             padding: const EdgeInsets.only(left: 1, bottom: 4),
             child: Text(
               '$label from app variable',
-              style: const TextStyle(
-                color: Color(0xFF737B8A),
+              style: TextStyle(
+                color: EditorPalette.mutedText(context),
                 fontSize: 10,
                 fontWeight: FontWeight.w600,
               ),
@@ -1757,6 +2115,958 @@ class _InspectorPanelState extends State<InspectorPanel> {
         _ => '',
       };
 
+  List<Map<String, Object?>> _actionMaps(Object? raw) =>
+      raw is List
+          ? raw
+              .whereType<Map<Object?, Object?>>()
+              .map(
+                (Map<Object?, Object?> item) => <String, Object?>{
+                  for (final MapEntry<Object?, Object?> entry in item.entries)
+                    entry.key.toString(): entry.value,
+                },
+              )
+              .toList()
+          : <Map<String, Object?>>[];
+
+  List<Map<String, Object?>> _allActions(BuilderNode node) {
+    final List<Map<String, Object?>> result = <Map<String, Object?>>[];
+    void visit(List<Map<String, Object?>> actions) {
+      for (final Map<String, Object?> action in actions) {
+        result.add(action);
+        for (final String key in <String>[
+          'thenActions',
+          'elseActions',
+          'actions',
+        ]) {
+          if (action[key] is List) visit(_actionMaps(action[key]));
+        }
+      }
+    }
+
+    visit(_customFunctionActionsDraft ?? BuilderAction.forNode(node));
+    return result;
+  }
+
+  void _commitActionList(BuilderNode node, List<Map<String, Object?>> actions) {
+    if (_customFunctionActionsDraft != null) {
+      _customFunctionActionsDraft = actions;
+      _customFunctionDialogSetState?.call(() {});
+      return;
+    }
+    widget.onSetProperty(node.id, 'actions', actions);
+  }
+
+  List<Map<String, Object?>> _rewriteActions(
+    List<Map<String, Object?>> actions,
+    String id,
+    Map<String, Object?>? replacement,
+    Map<String, Object?>? values,
+  ) {
+    final List<Map<String, Object?>> result = <Map<String, Object?>>[];
+    for (final Map<String, Object?> action in actions) {
+      if (action['id'] == id && replacement == null && values == null) continue;
+      Map<String, Object?> next =
+          action['id'] == id && replacement != null
+              ? replacement
+              : <String, Object?>{
+                ...action,
+                if (action['id'] == id && values != null) ...values,
+              };
+      if (next['id'] != id || replacement == null) {
+        for (final String key in <String>[
+          'thenActions',
+          'elseActions',
+          'actions',
+        ]) {
+          if (next[key] is List) {
+            next = <String, Object?>{
+              ...next,
+              key: _rewriteActions(
+                _actionMaps(next[key]),
+                id,
+                replacement,
+                values,
+              ),
+            };
+          }
+        }
+      }
+      result.add(next);
+    }
+    return result;
+  }
+
+  void _removeAction(BuilderNode node, String id) => _commitActionList(
+    node,
+    _rewriteActions(
+      _customFunctionActionsDraft ?? BuilderAction.forNode(node),
+      id,
+      null,
+      null,
+    ),
+  );
+
+  void _replaceAction(
+    BuilderNode node,
+    String id,
+    Map<String, Object?> replacement,
+  ) => _commitActionList(
+    node,
+    _rewriteActions(
+      _customFunctionActionsDraft ?? BuilderAction.forNode(node),
+      id,
+      replacement,
+      null,
+    ),
+  );
+
+  void _setActionValues(
+    BuilderNode node,
+    String id,
+    Map<String, Object?> values,
+  ) => _commitActionList(
+    node,
+    _rewriteActions(
+      _customFunctionActionsDraft ?? BuilderAction.forNode(node),
+      id,
+      null,
+      values,
+    ),
+  );
+
+  String _newCustomFunctionId() {
+    final Set<String> ids =
+        widget.customFunctions
+            .map((BuilderCustomFunction function) => function.id)
+            .toSet();
+    final String base =
+        'custom_function_${DateTime.now().microsecondsSinceEpoch}';
+    String id = base;
+    int suffix = 2;
+    while (ids.contains(id)) {
+      id = '${base}_$suffix';
+      suffix++;
+    }
+    return id;
+  }
+
+  Future<BuilderCustomFunction?> _editCustomFunction(
+    BuilderNode source, [
+    BuilderCustomFunction? existing,
+  ]) async {
+    final String id = existing?.id ?? _newCustomFunctionId();
+    final TextEditingController nameController = TextEditingController(
+      text: existing?.name ?? 'New function',
+    );
+    final CodeController bodyController = CodeController(
+      text: existing?.body ?? '',
+      language: dart_language.dart,
+    );
+    _customFunctionDraftId = id;
+    _customFunctionActionsDraft =
+        existing == null
+            ? <Map<String, Object?>>[]
+            : existing.actions
+                .map(
+                  (Map<String, Object?> action) =>
+                      Map<String, Object?>.of(action),
+                )
+                .toList();
+    String? validationMessage;
+    BuilderCustomFunction? saved;
+    try {
+      saved = await showDialog<BuilderCustomFunction>(
+        context: context,
+        builder:
+            (BuildContext dialogContext) => StatefulBuilder(
+              builder: (BuildContext context, StateSetter setDialogState) {
+                _customFunctionDialogSetState = setDialogState;
+                final List<Map<String, Object?>> actions =
+                    _customFunctionActionsDraft ?? <Map<String, Object?>>[];
+                final List<String> syntaxErrors = _customFunctionSyntaxErrors(
+                  bodyController.text,
+                );
+                return AlertDialog(
+                  title: Text(
+                    existing == null
+                        ? 'Create custom function'
+                        : 'Edit ${existing.name}',
+                  ),
+                  content: SizedBox(
+                    width: 520,
+                    child: SingleChildScrollView(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: <Widget>[
+                          TextField(
+                            controller: nameController,
+                            autofocus: true,
+                            decoration: const InputDecoration(
+                              labelText: 'Function name',
+                              border: OutlineInputBorder(),
+                            ),
+                          ),
+                          if (validationMessage != null) ...<Widget>[
+                            const SizedBox(height: 5),
+                            Text(
+                              validationMessage!,
+                              style: const TextStyle(
+                                color: const Color(0xFF9C3535),
+                                fontSize: 11,
+                              ),
+                            ),
+                          ],
+                          const SizedBox(height: 12),
+                          const Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              'Dart function body',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          CodeTheme(
+                            data: CodeThemeData(
+                              styles:
+                                  EditorPalette.isDark(context)
+                                      ? atomOneDarkTheme
+                                      : githubTheme,
+                            ),
+                            child: CodeField(
+                              controller: bodyController,
+                              minLines: 5,
+                              maxLines: 12,
+                              wrap: true,
+                              textStyle: const TextStyle(
+                                fontFamily: 'monospace',
+                                fontSize: 12,
+                              ),
+                              gutterStyle: const GutterStyle(
+                                width: 38,
+                                margin: 4,
+                                showFoldingHandles: false,
+                              ),
+                              onChanged: (_) => setDialogState(() {}),
+                              decoration: BoxDecoration(
+                                color: EditorPalette.surface(context),
+                                border: Border.all(
+                                  color: const Color(0xFF74777F),
+                                ),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                            ),
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.only(top: 4),
+                            child: Text(
+                              'Preview supports Dart core, math, JSON, and types from Data types. Use getVariable and setVariable with JSON plus fromJson()/toJson() to persist structured values. showMessage, navigateTo, back and print interact with the preview. External packages and Flutter context APIs are export-only.',
+                              style: TextStyle(
+                                color: EditorPalette.mutedText(context),
+                                fontSize: 11,
+                              ),
+                            ),
+                          ),
+                          if (syntaxErrors.isNotEmpty) ...<Widget>[
+                            const SizedBox(height: 6),
+                            for (final String error in syntaxErrors.take(4))
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 3),
+                                child: Text(
+                                  error,
+                                  style: const TextStyle(
+                                    color: const Color(0xFFB3261E),
+                                    fontSize: 11,
+                                  ),
+                                ),
+                              ),
+                          ] else if (bodyController.text
+                              .trim()
+                              .isNotEmpty) ...<Widget>[
+                            const SizedBox(height: 5),
+                            const Text(
+                              'No Dart syntax errors found.',
+                              style: const TextStyle(
+                                color: const Color(0xFF477A55),
+                                fontSize: 11,
+                              ),
+                            ),
+                          ],
+                          if (bodyController.text
+                              .trim()
+                              .isNotEmpty) ...<Widget>[
+                            const SizedBox(height: 6),
+                            Text(
+                              'Dart code runs in the preview and exported apps. Action steps below are ignored while code is present.',
+                              style: TextStyle(
+                                color: EditorPalette.mutedText(context),
+                                fontSize: 11,
+                              ),
+                            ),
+                          ],
+                          const SizedBox(height: 14),
+                          const Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              'Function action steps (optional alternative)',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          ConstrainedBox(
+                            constraints: const BoxConstraints(maxHeight: 360),
+                            child: SingleChildScrollView(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: <Widget>[
+                                  if (actions.isEmpty)
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 12,
+                                      ),
+                                      child: Text(
+                                        'Leave the Dart body empty to use action steps here.',
+                                        style: TextStyle(
+                                          color: EditorPalette.mutedText(
+                                            context,
+                                          ),
+                                          fontSize: 11,
+                                        ),
+                                      ),
+                                    ),
+                                  for (
+                                    int index = 0;
+                                    index < actions.length;
+                                    index++
+                                  )
+                                    _actionCard(source, actions[index], index),
+                                  Align(
+                                    alignment: Alignment.centerLeft,
+                                    child: PopupMenuButton<String>(
+                                      tooltip: 'Add function action',
+                                      onSelected: (String type) {
+                                        actions.add(
+                                          _createAction(
+                                            _newActionId(source),
+                                            type,
+                                          ),
+                                        );
+                                        setDialogState(() {});
+                                      },
+                                      itemBuilder:
+                                          (BuildContext context) =>
+                                              _actionTypeItems(),
+                                      child: Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                          vertical: 6,
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: <Widget>[
+                                            Icon(
+                                              Icons.add,
+                                              size: 14,
+                                              color: EditorPalette.primary(
+                                                context,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 4),
+                                            Text(
+                                              'Add function action',
+                                              style: TextStyle(
+                                                fontSize: 10,
+                                                color: EditorPalette.primary(
+                                                  context,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  actions: <Widget>[
+                    TextButton(
+                      onPressed: () => Navigator.pop(dialogContext),
+                      child: const Text('Cancel'),
+                    ),
+                    FilledButton(
+                      onPressed: () {
+                        final String name = nameController.text.trim();
+                        final bool duplicate = widget.customFunctions.any(
+                          (BuilderCustomFunction function) =>
+                              function.id != id &&
+                              function.name.toLowerCase() == name.toLowerCase(),
+                        );
+                        if (name.isEmpty || duplicate) {
+                          setDialogState(() {
+                            validationMessage =
+                                name.isEmpty
+                                    ? 'Enter a function name.'
+                                    : 'A function with that name already exists.';
+                          });
+                          return;
+                        }
+                        Navigator.pop(
+                          dialogContext,
+                          BuilderCustomFunction(
+                            id: id,
+                            name: name,
+                            body: bodyController.text,
+                            actions: _customFunctionActionsDraft ?? actions,
+                          ),
+                        );
+                      },
+                      child: const Text('Save function'),
+                    ),
+                  ],
+                );
+              },
+            ),
+      );
+    } finally {
+      _customFunctionActionsDraft = null;
+      _customFunctionDraftId = null;
+      _customFunctionDialogSetState = null;
+      nameController.dispose();
+      bodyController.dispose();
+    }
+    if (saved == null) return null;
+    final List<BuilderCustomFunction> next = <BuilderCustomFunction>[
+      ...widget.customFunctions.where(
+        (BuilderCustomFunction function) => function.id != saved!.id,
+      ),
+      saved,
+    ];
+    widget.onSetCustomFunctions?.call(next);
+    return saved;
+  }
+
+  List<String> _customFunctionSyntaxErrors(String body) {
+    if (body.trim().isEmpty) return <String>[];
+
+    const String prefix = 'void _customFunctionBody() async {\n';
+    final String source = '$prefix$body\n}';
+    final parsed = parseString(
+      content: source,
+      path: 'custom_function.dart',
+      throwIfDiagnostics: false,
+    );
+    final int bodyEnd = prefix.length + body.length;
+    final List<String> errors = <String>[];
+    for (final error in parsed.errors) {
+      if (error.offset < prefix.length || error.offset > bodyEnd) continue;
+      final int line =
+          '\n'.allMatches(source.substring(0, error.offset)).length;
+      errors.add('Line $line: ${error.message}');
+    }
+    return errors;
+  }
+
+  Map<String, Object?> _createAction(String id, String type) {
+    final Map<String, Object?> action = BuilderAction.create(id, type);
+    if (type.startsWith('database') && widget.databaseCollections.length == 1) {
+      action['collectionId'] = widget.databaseCollections.single.id;
+    }
+    if (type == 'customFunction') {
+      final List<BuilderCustomFunction> availableFunctions =
+          widget.customFunctions
+              .where(
+                (BuilderCustomFunction function) =>
+                    function.id != _customFunctionDraftId,
+              )
+              .toList();
+      if (availableFunctions.length == 1) {
+        action['functionId'] = availableFunctions.single.id;
+      }
+    }
+    return action;
+  }
+
+  String _newActionId(BuilderNode node) {
+    final Set<String> ids =
+        _allActions(node)
+            .map((Map<String, Object?> item) => item['id'] as String? ?? '')
+            .toSet();
+    int index = ids.length + 1;
+    final String actionPrefix = _customFunctionDraftId ?? node.id;
+    String id = '${actionPrefix}_action_$index';
+    while (ids.contains(id)) {
+      index++;
+      id = '${actionPrefix}_action_$index';
+    }
+    return id;
+  }
+
+  List<PopupMenuEntry<String>>
+  _actionTypeItems() => const <PopupMenuEntry<String>>[
+    PopupMenuItem(value: 'navigate', child: Text('Navigate to page')),
+    PopupMenuItem(value: 'snackbar', child: Text('Show snackbar')),
+    PopupMenuItem(value: 'dialog', child: Text('Show alert dialog')),
+    PopupMenuItem(value: 'back', child: Text('Navigate back')),
+    PopupMenuItem(value: 'setVariable', child: Text('Set app variable')),
+    PopupMenuItem(
+      value: 'incrementVariable',
+      child: Text('Increment number variable'),
+    ),
+    PopupMenuItem(
+      value: 'toggleVariable',
+      child: Text('Toggle boolean variable'),
+    ),
+    PopupMenuItem(value: 'updateWidget', child: Text('Update another widget')),
+    PopupMenuItem(value: 'conditional', child: Text('If / else')),
+    PopupMenuItem(value: 'loop', child: Text('Repeat actions')),
+    PopupMenuItem(value: 'httpRequest', child: Text('HTTP request')),
+    PopupMenuItem(value: 'databaseInsert', child: Text('Save database record')),
+    PopupMenuItem(value: 'databaseQuery', child: Text('Load database records')),
+    PopupMenuItem(
+      value: 'databaseDelete',
+      child: Text('Delete database record'),
+    ),
+    PopupMenuItem(value: 'customFunction', child: Text('Run custom function')),
+  ];
+
+  Widget _nestedActionEditor(
+    BuilderNode node,
+    String parentId,
+    Map<String, Object?> parent,
+    String field,
+    String label,
+  ) {
+    final List<Map<String, Object?>> actions = _actionMaps(parent[field]);
+    return Container(
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: EditorPalette.surface(context),
+        borderRadius: BorderRadius.circular(7),
+        border: Border.all(color: EditorPalette.border(context)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          Text(
+            label,
+            style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700),
+          ),
+          if (actions.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Text(
+                'No steps yet.',
+                style: TextStyle(
+                  fontSize: 10,
+                  color: EditorPalette.mutedText(context),
+                ),
+              ),
+            ),
+          for (int index = 0; index < actions.length; index++)
+            _actionCard(node, actions[index], index),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: PopupMenuButton<String>(
+              tooltip: 'Add nested action',
+              onSelected: (String type) {
+                final List<Map<String, Object?>> next = _actionMaps(
+                  parent[field],
+                );
+                next.add(_createAction(_newActionId(node), type));
+                _setActionValues(node, parentId, <String, Object?>{
+                  field: next,
+                });
+              },
+              itemBuilder: (BuildContext context) => _actionTypeItems(),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 5),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    Icon(
+                      Icons.add,
+                      size: 14,
+                      color: EditorPalette.primary(context),
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      'Add step',
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: EditorPalette.primary(context),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  List<Widget> _conditionalActionFields(
+    BuilderNode node,
+    String id,
+    Map<String, Object?> action,
+  ) {
+    const List<String> operators = <String>[
+      'equals',
+      'notEquals',
+      'greaterThan',
+      'lessThan',
+      'contains',
+      'isTrue',
+      'isFalse',
+    ];
+    final String variableId = action['variableId'] as String? ?? '';
+    final String operator =
+        operators.contains(action['operator'])
+            ? action['operator']! as String
+            : 'equals';
+    return <Widget>[
+      DropdownButtonFormField<String>(
+        key: ValueKey<String>(
+          'condition-variable-$id-$variableId-${widget.variables.length}',
+        ),
+        initialValue:
+            widget.variables.any(
+                  (BuilderVariable item) => item.id == variableId,
+                )
+                ? variableId
+                : '',
+        isExpanded: true,
+        decoration: _inputDecoration(labelText: 'Check app variable'),
+        items: <DropdownMenuItem<String>>[
+          const DropdownMenuItem(value: '', child: Text('Choose a variable')),
+          ...widget.variables.map(
+            (BuilderVariable item) => DropdownMenuItem(
+              value: item.id,
+              child: Text(item.name, overflow: TextOverflow.ellipsis),
+            ),
+          ),
+        ],
+        onChanged: (String? value) {
+          if (value != null) _setActionValue(node, id, 'variableId', value);
+        },
+      ),
+      const SizedBox(height: 7),
+      DropdownButtonFormField<String>(
+        key: ValueKey<String>('condition-operator-$id-$operator'),
+        initialValue: operator,
+        isExpanded: true,
+        decoration: _inputDecoration(labelText: 'Condition'),
+        items: const <DropdownMenuItem<String>>[
+          DropdownMenuItem(value: 'equals', child: Text('Equals')),
+          DropdownMenuItem(value: 'notEquals', child: Text('Does not equal')),
+          DropdownMenuItem(
+            value: 'greaterThan',
+            child: Text('Is greater than'),
+          ),
+          DropdownMenuItem(value: 'lessThan', child: Text('Is less than')),
+          DropdownMenuItem(value: 'contains', child: Text('Contains')),
+          DropdownMenuItem(value: 'isTrue', child: Text('Is true')),
+          DropdownMenuItem(value: 'isFalse', child: Text('Is false')),
+        ],
+        onChanged: (String? value) {
+          if (value != null) _setActionValue(node, id, 'operator', value);
+        },
+      ),
+      if (!<String>{'isTrue', 'isFalse'}.contains(operator)) ...<Widget>[
+        const SizedBox(height: 7),
+        _actionTextField(node, id, action, 'value', 'Compare with'),
+      ],
+    ];
+  }
+
+  List<Widget> _databaseActionFields(
+    BuilderNode node,
+    String id,
+    Map<String, Object?> action,
+    String type,
+  ) {
+    final String collectionId = action['collectionId'] as String? ?? '';
+    final String resultId = action['resultVariableId'] as String? ?? '';
+    final List<BuilderVariable> jsonVariables =
+        widget.variables
+            .where((BuilderVariable variable) => variable.type == 'json')
+            .toList();
+    return <Widget>[
+      DropdownButtonFormField<String>(
+        key: ValueKey<String>('database-collection-$id-$collectionId'),
+        initialValue:
+            widget.databaseCollections.any(
+                  (BuilderDatabaseCollection item) => item.id == collectionId,
+                )
+                ? collectionId
+                : '',
+        isExpanded: true,
+        decoration: _inputDecoration(labelText: 'Collection'),
+        items: <DropdownMenuItem<String>>[
+          const DropdownMenuItem(value: '', child: Text('Choose a collection')),
+          ...widget.databaseCollections.map(
+            (BuilderDatabaseCollection item) => DropdownMenuItem(
+              value: item.id,
+              child: Text(item.name, overflow: TextOverflow.ellipsis),
+            ),
+          ),
+        ],
+        onChanged: (String? value) {
+          if (value != null) _setActionValue(node, id, 'collectionId', value);
+        },
+      ),
+      if (widget.databaseCollections.isEmpty) ...<Widget>[
+        const SizedBox(height: 5),
+        const Text('Create a collection in Resources → Database first.'),
+      ],
+      if (type == 'databaseInsert') ...<Widget>[
+        const SizedBox(height: 8),
+        _actionTextField(
+          node,
+          id,
+          action,
+          'record',
+          'Record JSON',
+          maxLines: 4,
+          hintText: '{"title":"New item"}',
+        ),
+      ],
+      if (type == 'databaseQuery') ...<Widget>[
+        const SizedBox(height: 8),
+        DropdownButtonFormField<String>(
+          key: ValueKey<String>('database-result-$id-$resultId'),
+          initialValue:
+              jsonVariables.any(
+                    (BuilderVariable variable) => variable.id == resultId,
+                  )
+                  ? resultId
+                  : '',
+          isExpanded: true,
+          decoration: _inputDecoration(
+            labelText: 'Store rows in JSON variable',
+          ),
+          items: <DropdownMenuItem<String>>[
+            const DropdownMenuItem(
+              value: '',
+              child: Text('Choose a JSON variable'),
+            ),
+            ...jsonVariables.map(
+              (BuilderVariable variable) => DropdownMenuItem(
+                value: variable.id,
+                child: Text(variable.name, overflow: TextOverflow.ellipsis),
+              ),
+            ),
+          ],
+          onChanged: (String? value) {
+            if (value != null) {
+              _setActionValue(node, id, 'resultVariableId', value);
+            }
+          },
+        ),
+      ],
+      if (type == 'databaseDelete') ...<Widget>[
+        const SizedBox(height: 8),
+        _actionTextField(
+          node,
+          id,
+          action,
+          'recordId',
+          'Record ID',
+          hintText: '1 or \${recordId}',
+        ),
+      ],
+    ];
+  }
+
+  List<Widget> _httpRequestActionFields(
+    BuilderNode node,
+    String id,
+    Map<String, Object?> action,
+  ) {
+    final String method =
+        <String>{
+              'GET',
+              'POST',
+              'PUT',
+              'PATCH',
+              'DELETE',
+            }.contains(action['method'])
+            ? action['method']! as String
+            : 'GET';
+    final String responseId = action['responseVariableId'] as String? ?? '';
+    return <Widget>[
+      DropdownButtonFormField<String>(
+        key: ValueKey<String>('http-method-$id-$method'),
+        initialValue: method,
+        decoration: _inputDecoration(labelText: 'Method'),
+        items: const <DropdownMenuItem<String>>[
+          DropdownMenuItem(value: 'GET', child: Text('GET')),
+          DropdownMenuItem(value: 'POST', child: Text('POST')),
+          DropdownMenuItem(value: 'PUT', child: Text('PUT')),
+          DropdownMenuItem(value: 'PATCH', child: Text('PATCH')),
+          DropdownMenuItem(value: 'DELETE', child: Text('DELETE')),
+        ],
+        onChanged: (String? value) {
+          if (value != null) _setActionValue(node, id, 'method', value);
+        },
+      ),
+      const SizedBox(height: 7),
+      _actionTextField(
+        node,
+        id,
+        action,
+        'url',
+        'Request URL',
+        hintText: r'Use ${variableId} or $variableName',
+      ),
+      const SizedBox(height: 7),
+      _actionTextField(
+        node,
+        id,
+        action,
+        'headers',
+        'Headers (JSON)',
+        maxLines: 3,
+        hintText: r'Variable values such as ${token} can be inserted.',
+      ),
+      const SizedBox(height: 7),
+      _actionTextField(
+        node,
+        id,
+        action,
+        'body',
+        'Body',
+        maxLines: 3,
+        hintText: r'Variable values such as ${userId} can be inserted.',
+      ),
+      const SizedBox(height: 7),
+      DropdownButtonFormField<String>(
+        key: ValueKey<String>(
+          'http-response-$id-$responseId-${widget.variables.length}',
+        ),
+        initialValue:
+            widget.variables.any(
+                  (BuilderVariable item) => item.id == responseId,
+                )
+                ? responseId
+                : '',
+        isExpanded: true,
+        decoration: _inputDecoration(labelText: 'Save response body to'),
+        items: <DropdownMenuItem<String>>[
+          const DropdownMenuItem(value: '', child: Text('Discard response')),
+          ...widget.variables.map(
+            (BuilderVariable item) => DropdownMenuItem(
+              value: item.id,
+              child: Text(item.name, overflow: TextOverflow.ellipsis),
+            ),
+          ),
+        ],
+        onChanged: (String? value) {
+          if (value != null)
+            _setActionValue(node, id, 'responseVariableId', value);
+        },
+      ),
+    ];
+  }
+
+  Widget _actionIntegerField(
+    BuilderNode node,
+    String id,
+    Map<String, Object?> action,
+    String field,
+    String label,
+  ) => TextFormField(
+    key: ValueKey<String>('action-integer-$id-$field'),
+    initialValue: action[field]?.toString() ?? '1',
+    keyboardType: TextInputType.number,
+    decoration: _inputDecoration(labelText: label),
+    onChanged: (String value) {
+      final int? parsed = int.tryParse(value);
+      if (parsed != null)
+        _setActionValue(node, id, field, parsed.clamp(1, 1000));
+    },
+  );
+
+  List<Widget> _customFunctionActionFields(
+    BuilderNode node,
+    String actionId,
+    Map<String, Object?> action,
+  ) {
+    final String functionId = action['functionId'] as String? ?? '';
+    final bool hasFunction = widget.customFunctions.any(
+      (BuilderCustomFunction function) => function.id == functionId,
+    );
+    return <Widget>[
+      DropdownButtonFormField<String>(
+        key: ValueKey<String>(
+          'action-function-$actionId-$functionId-${widget.customFunctions.length}',
+        ),
+        initialValue: hasFunction ? functionId : '',
+        isExpanded: true,
+        decoration: _inputDecoration(labelText: 'Custom function'),
+        items: <DropdownMenuItem<String>>[
+          const DropdownMenuItem<String>(
+            value: '',
+            child: Text('Choose a function'),
+          ),
+          ...widget.customFunctions.map(
+            (BuilderCustomFunction function) => DropdownMenuItem<String>(
+              value: function.id,
+              child: Text(function.name, overflow: TextOverflow.ellipsis),
+            ),
+          ),
+        ],
+        onChanged: (String? value) {
+          if (value != null)
+            _setActionValue(node, actionId, 'functionId', value);
+        },
+      ),
+      if (_customFunctionDraftId == null)
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            onPressed: () async {
+              final BuilderCustomFunction? function = await _editCustomFunction(
+                node,
+              );
+              if (function != null) {
+                _setActionValue(node, actionId, 'functionId', function.id);
+              }
+            },
+            icon: const Icon(Icons.add, size: 14),
+            label: const Text('Create function'),
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+              textStyle: const TextStyle(fontSize: 10),
+            ),
+          ),
+        ),
+      if (functionId.isNotEmpty && !hasFunction)
+        const Padding(
+          padding: const EdgeInsets.only(top: 4),
+          child: const Text(
+            'This function was removed. Choose another function.',
+            style: const TextStyle(
+              color: const Color(0xFF9C3535),
+              fontSize: 10,
+            ),
+          ),
+        ),
+    ];
+  }
+
   Widget _actionCard(BuilderNode node, Map<String, Object?> action, int index) {
     final String id =
         action['id'] is String
@@ -1771,9 +3081,9 @@ class _InspectorPanelState extends State<InspectorPanel> {
       margin: const EdgeInsets.only(bottom: 9),
       padding: const EdgeInsets.all(9),
       decoration: BoxDecoration(
-        color: const Color(0xFFF6F7F9),
+        color: EditorPalette.surfaceRaised(context),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFE1E4EA)),
+        border: Border.all(color: EditorPalette.border(context)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1785,13 +3095,13 @@ class _InspectorPanelState extends State<InspectorPanel> {
                 height: 22,
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
-                  color: const Color(0xFFE8E4F4),
+                  color: EditorPalette.primaryContainer(context),
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: Text(
                   '${index + 1}',
-                  style: const TextStyle(
-                    color: Color(0xFF6750A4),
+                  style: TextStyle(
+                    color: EditorPalette.primary(context),
                     fontSize: 10,
                     fontWeight: FontWeight.w700,
                   ),
@@ -1801,8 +3111,8 @@ class _InspectorPanelState extends State<InspectorPanel> {
               Expanded(
                 child: Text(
                   _actionName(type),
-                  style: const TextStyle(
-                    color: Color(0xFF3D4350),
+                  style: TextStyle(
+                    color: EditorPalette.text(context),
                     fontSize: 11,
                     fontWeight: FontWeight.w700,
                   ),
@@ -1816,15 +3126,7 @@ class _InspectorPanelState extends State<InspectorPanel> {
                   height: 28,
                 ),
                 padding: EdgeInsets.zero,
-                onPressed: () {
-                  final List<Map<String, Object?>> next =
-                      BuilderAction.forNode(node)
-                          .where(
-                            (Map<String, Object?> item) => item['id'] != id,
-                          )
-                          .toList();
-                  widget.onSetProperty(node.id, 'actions', next);
-                },
+                onPressed: () => _removeAction(node, id),
                 icon: const Icon(Icons.close, size: 16),
               ),
             ],
@@ -1862,18 +3164,32 @@ class _InspectorPanelState extends State<InspectorPanel> {
                 value: 'updateWidget',
                 child: Text('Update another widget'),
               ),
+              DropdownMenuItem(value: 'conditional', child: Text('If / else')),
+              DropdownMenuItem(value: 'loop', child: Text('Repeat actions')),
+              DropdownMenuItem(
+                value: 'httpRequest',
+                child: Text('HTTP request'),
+              ),
+              DropdownMenuItem(
+                value: 'databaseInsert',
+                child: Text('Save database record'),
+              ),
+              DropdownMenuItem(
+                value: 'databaseQuery',
+                child: Text('Load database records'),
+              ),
+              DropdownMenuItem(
+                value: 'databaseDelete',
+                child: Text('Delete database record'),
+              ),
+              DropdownMenuItem(
+                value: 'customFunction',
+                child: Text('Run custom function'),
+              ),
             ],
             onChanged: (String? nextType) {
               if (nextType == null) return;
-              final List<Map<String, Object?>> next = BuilderAction.forNode(
-                node,
-              );
-              final int actionIndex = next.indexWhere(
-                (Map<String, Object?> item) => item['id'] == id,
-              );
-              if (actionIndex < 0) return;
-              next[actionIndex] = BuilderAction.create(id, nextType);
-              widget.onSetProperty(node.id, 'actions', next);
+              _replaceAction(node, id, _createAction(id, nextType));
             },
           ),
           if (type == 'navigate') ...<Widget>[
@@ -1948,19 +3264,56 @@ class _InspectorPanelState extends State<InspectorPanel> {
             ),
           ],
           if (type == 'back')
-            const Padding(
-              padding: EdgeInsets.only(top: 7),
+            Padding(
+              padding: const EdgeInsets.only(top: 7),
               child: Text(
                 'Returns to the previous page in the preview or running app.',
-                style: TextStyle(color: Color(0xFF737B8A), fontSize: 10),
+                style: TextStyle(
+                  color: EditorPalette.mutedText(context),
+                  fontSize: 10,
+                ),
               ),
             ),
           if (type == 'setVariable' ||
               type == 'incrementVariable' ||
-              type == 'toggleVariable')
+              type == 'toggleVariable') ...<Widget>[
+            const SizedBox(height: 8),
             ..._variableActionFields(node, id, action, type),
-          if (type == 'updateWidget')
+          ],
+          if (type == 'updateWidget') ...<Widget>[
+            const SizedBox(height: 8),
             ..._updateWidgetActionFields(node, id, action),
+          ],
+          if (type == 'conditional') ...<Widget>[
+            const SizedBox(height: 8),
+            ..._conditionalActionFields(node, id, action),
+            const SizedBox(height: 8),
+            _nestedActionEditor(node, id, action, 'thenActions', 'If true'),
+            const SizedBox(height: 8),
+            _nestedActionEditor(node, id, action, 'elseActions', 'If false'),
+          ],
+          if (type == 'loop') ...<Widget>[
+            const SizedBox(height: 8),
+            _actionIntegerField(node, id, action, 'iterations', 'Repeat count'),
+            const SizedBox(height: 8),
+            _nestedActionEditor(node, id, action, 'actions', 'Loop actions'),
+          ],
+          if (type == 'httpRequest') ...<Widget>[
+            const SizedBox(height: 8),
+            ..._httpRequestActionFields(node, id, action),
+          ],
+          if (<String>{
+            'databaseInsert',
+            'databaseQuery',
+            'databaseDelete',
+          }.contains(type)) ...<Widget>[
+            const SizedBox(height: 8),
+            ..._databaseActionFields(node, id, action, type),
+          ],
+          if (type == 'customFunction') ...<Widget>[
+            const SizedBox(height: 8),
+            ..._customFunctionActionFields(node, id, action),
+          ],
         ],
       ),
     );
@@ -1973,6 +3326,7 @@ class _InspectorPanelState extends State<InspectorPanel> {
     String field,
     String label, {
     int maxLines = 1,
+    String? hintText,
   }) => TextFormField(
     key: ValueKey<String>('action-field-${node.id}-$id-$field'),
     initialValue:
@@ -1982,26 +3336,12 @@ class _InspectorPanelState extends State<InspectorPanel> {
             ? jsonEncode(action[field])
             : action[field]?.toString() ?? '',
     maxLines: maxLines,
-    decoration: _inputDecoration(labelText: label),
+    decoration: _inputDecoration(labelText: label, hintText: hintText),
     onChanged: (String value) => _setActionValue(node, id, field, value),
   );
 
   void _setActionValue(BuilderNode node, String id, String key, Object? value) {
     _setActionValues(node, id, <String, Object?>{key: value});
-  }
-
-  void _setActionValues(
-    BuilderNode node,
-    String id,
-    Map<String, Object?> values,
-  ) {
-    final List<Map<String, Object?>> actions = BuilderAction.forNode(node);
-    final int index = actions.indexWhere(
-      (Map<String, Object?> action) => action['id'] == id,
-    );
-    if (index < 0) return;
-    actions[index] = <String, Object?>{...actions[index], ...values};
-    widget.onSetProperty(node.id, 'actions', actions);
   }
 
   String _actionName(String type) => switch (type) {
@@ -2013,6 +3353,13 @@ class _InspectorPanelState extends State<InspectorPanel> {
     'incrementVariable' => 'Increment number variable',
     'toggleVariable' => 'Toggle boolean variable',
     'updateWidget' => 'Update another widget',
+    'conditional' => 'If / else',
+    'loop' => 'Repeat actions',
+    'httpRequest' => 'HTTP request',
+    'databaseInsert' => 'Save database record',
+    'databaseQuery' => 'Load database records',
+    'databaseDelete' => 'Delete database record',
+    'customFunction' => 'Run custom function',
     _ => 'Action',
   };
 
@@ -2037,8 +3384,8 @@ class _InspectorPanelState extends State<InspectorPanel> {
       node.type == 'row'
           ? 'Children are arranged horizontally.'
           : 'Children are arranged vertically.',
-      style: const TextStyle(
-        color: Color(0xFF737B8A),
+      style: TextStyle(
+        color: EditorPalette.mutedText(context),
         fontSize: 11,
         height: 1.4,
       ),
@@ -2157,8 +3504,8 @@ class _InspectorPanelState extends State<InspectorPanel> {
 
   Widget _fieldLabel(String label) => Text(
     label,
-    style: const TextStyle(
-      color: Color(0xFF525968),
+    style: TextStyle(
+      color: EditorPalette.text(context),
       fontSize: 11,
       fontWeight: FontWeight.w600,
     ),
@@ -2169,7 +3516,7 @@ class _InspectorPanelState extends State<InspectorPanel> {
         hintText: hintText,
         labelText: labelText,
         filled: true,
-        fillColor: Colors.white,
+        fillColor: EditorPalette.surface(context),
         isDense: true,
         contentPadding: const EdgeInsets.symmetric(
           horizontal: 10,
@@ -2177,11 +3524,11 @@ class _InspectorPanelState extends State<InspectorPanel> {
         ),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(7),
-          borderSide: const BorderSide(color: Color(0xFFDDE0E8)),
+          borderSide: BorderSide(color: EditorPalette.border(context)),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(7),
-          borderSide: const BorderSide(color: Color(0xFFDDE0E8)),
+          borderSide: BorderSide(color: EditorPalette.border(context)),
         ),
       );
 
@@ -2257,6 +3604,7 @@ class _InspectorPanelState extends State<InspectorPanel> {
     'swipeableStack' => 'Swipeable Stack',
     'card' => 'Card',
     'padding' => 'Padding',
+    'componentGroup' => 'Component Group',
     'image' => 'Image',
     'icon' => 'Icon',
     'divider' => 'Divider',
@@ -2283,12 +3631,12 @@ class _InspectorHeading extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: <Widget>[
-        Icon(icon, size: 16, color: const Color(0xFF6E7482)),
+        Icon(icon, size: 16, color: EditorPalette.mutedText(context)),
         const SizedBox(width: 8),
         Text(
           title,
-          style: const TextStyle(
-            color: Color(0xFF3C4351),
+          style: TextStyle(
+            color: EditorPalette.text(context),
             fontSize: 12,
             fontWeight: FontWeight.w700,
           ),

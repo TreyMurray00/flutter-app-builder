@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/builder_document.dart';
 import 'editor_drag_data.dart';
+import 'editor_palette.dart';
 import 'widget_catalog.dart';
 
 class WidgetTreePanel extends StatefulWidget {
@@ -11,6 +12,8 @@ class WidgetTreePanel extends StatefulWidget {
     required this.onSelect,
     required this.onAddObject,
     required this.onDrop,
+    this.componentGroups = const <BuilderComponentGroup>[],
+    this.onAddGroup,
     super.key,
   });
 
@@ -24,6 +27,8 @@ class WidgetTreePanel extends StatefulWidget {
     BuilderDropPosition position,
   )
   onDrop;
+  final List<BuilderComponentGroup> componentGroups;
+  final ValueChanged<BuilderComponentGroup>? onAddGroup;
 
   @override
   State<WidgetTreePanel> createState() => _WidgetTreePanelState();
@@ -68,8 +73,8 @@ class _WidgetTreePanelState extends State<WidgetTreePanel> {
                 size: 18,
                 color:
                     _showTree
-                        ? const Color(0xFF7B8390)
-                        : const Color(0xFF6750A4),
+                        ? EditorPalette.mutedText(context)
+                        : EditorPalette.primary(context),
               ),
             ),
             IconButton(
@@ -83,8 +88,8 @@ class _WidgetTreePanelState extends State<WidgetTreePanel> {
                 size: 18,
                 color:
                     _showTree
-                        ? const Color(0xFF6750A4)
-                        : const Color(0xFF7B8390),
+                        ? EditorPalette.primary(context)
+                        : EditorPalette.mutedText(context),
               ),
             ),
           ],
@@ -105,7 +110,7 @@ class _WidgetTreePanelState extends State<WidgetTreePanel> {
           hintText: 'Search for a widget…',
           isDense: true,
           filled: true,
-          fillColor: const Color(0xFFF5F6F8),
+          fillColor: EditorPalette.surfaceRaised(context),
           contentPadding: const EdgeInsets.symmetric(vertical: 11),
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(8),
@@ -119,6 +124,7 @@ class _WidgetTreePanelState extends State<WidgetTreePanel> {
           padding: EdgeInsets.zero,
           children: <Widget>[
             _commonGrid(),
+            _componentGroups(),
             _categoryGrid(
               WidgetCategory.layout,
               'Layout Elements',
@@ -139,12 +145,12 @@ class _WidgetTreePanelState extends State<WidgetTreePanel> {
               'Page Elements',
               Icons.web_asset_outlined,
             ),
-            const Padding(
-              padding: EdgeInsets.only(top: 8),
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
               child: Text(
                 'Drag onto the canvas or drop into a layout to nest it.',
                 style: TextStyle(
-                  color: Color(0xFF737B8A),
+                  color: EditorPalette.mutedText(context),
                   fontSize: 10,
                   height: 1.4,
                 ),
@@ -159,9 +165,9 @@ class _WidgetTreePanelState extends State<WidgetTreePanel> {
   Widget _treeView(List<Widget> rows) => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: <Widget>[
-      const Text(
+      Text(
         'Drag to reorder or nest',
-        style: TextStyle(fontSize: 10, color: Color(0xFF737B8A)),
+        style: TextStyle(fontSize: 10, color: EditorPalette.mutedText(context)),
       ),
       const SizedBox(height: 8),
       Expanded(child: ListView(padding: EdgeInsets.zero, children: rows)),
@@ -189,7 +195,7 @@ class _WidgetTreePanelState extends State<WidgetTreePanel> {
       childrenPadding: const EdgeInsets.only(bottom: 8),
       title: Row(
         children: <Widget>[
-          Icon(icon, size: 15, color: const Color(0xFF657080)),
+          Icon(icon, size: 15, color: EditorPalette.mutedText(context)),
           const SizedBox(width: 7),
           Text(
             title,
@@ -198,6 +204,60 @@ class _WidgetTreePanelState extends State<WidgetTreePanel> {
         ],
       ),
       children: <Widget>[_itemGrid(items)],
+    );
+  }
+
+  Widget _componentGroups() {
+    if (widget.componentGroups.isEmpty) return const SizedBox.shrink();
+    final String query = _search.text.trim().toLowerCase();
+    final List<BuilderComponentGroup> groups = widget.componentGroups
+        .where(
+          (BuilderComponentGroup group) =>
+              query.isEmpty || group.name.toLowerCase().contains(query),
+        )
+        .toList();
+    if (groups.isEmpty) return const SizedBox.shrink();
+    return ExpansionTile(
+      key: ValueKey<String>('component-groups-${query.isNotEmpty}'),
+      initiallyExpanded: query.isNotEmpty,
+      tilePadding: const EdgeInsets.symmetric(horizontal: 2),
+      childrenPadding: const EdgeInsets.only(bottom: 8),
+      title: Row(
+        children: <Widget>[
+          Icon(
+            Icons.dashboard_customize_outlined,
+            size: 15,
+            color: EditorPalette.mutedText(context),
+          ),
+          const SizedBox(width: 7),
+          const Text(
+            'Reusable Groups',
+            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+          ),
+        ],
+      ),
+      children: groups
+          .map(
+            (BuilderComponentGroup group) => ListTile(
+              dense: true,
+              visualDensity: VisualDensity.compact,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 7),
+              leading: Icon(
+                Icons.dashboard_customize_outlined,
+                size: 17,
+                color: EditorPalette.primary(context),
+              ),
+              title: Text(
+                group.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 11),
+              ),
+              trailing: const Icon(Icons.add_circle_outline, size: 17),
+              onTap: () => widget.onAddGroup?.call(group),
+            ),
+          )
+          .toList(),
     );
   }
 
@@ -226,10 +286,14 @@ class _WidgetTreePanelState extends State<WidgetTreePanel> {
       initiallyExpanded: true,
       tilePadding: const EdgeInsets.symmetric(horizontal: 2),
       childrenPadding: const EdgeInsets.only(bottom: 8),
-      title: const Row(
+      title: Row(
         children: <Widget>[
-          Icon(Icons.star_border, size: 15, color: Color(0xFF657080)),
-          SizedBox(width: 7),
+          Icon(
+            Icons.star_border,
+            size: 15,
+            color: EditorPalette.mutedText(context),
+          ),
+          const SizedBox(width: 7),
           const Expanded(
             child: Text(
               'Commonly Used Elements',
@@ -320,12 +384,12 @@ class _PanelHeading extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: <Widget>[
-        Icon(icon, size: 16, color: const Color(0xFF6E7482)),
+        Icon(icon, size: 16, color: EditorPalette.mutedText(context)),
         const SizedBox(width: 8),
         Text(
           title,
-          style: const TextStyle(
-            color: Color(0xFF3C4351),
+          style: TextStyle(
+            color: EditorPalette.text(context),
             fontSize: 12,
             fontWeight: FontWeight.w700,
           ),
@@ -356,7 +420,10 @@ class _DraggableTreeRow extends StatelessWidget {
       _ => (catalog?.icon ?? Icons.widgets_outlined, const Color(0xFF398B78)),
     };
     final Widget row = Material(
-      color: selected ? const Color(0xFFEDE9F8) : Colors.transparent,
+      color:
+          selected
+              ? EditorPalette.primaryContainer(context)
+              : Colors.transparent,
       borderRadius: BorderRadius.circular(7),
       child: InkWell(
         onTap: onSelect,
@@ -374,8 +441,8 @@ class _DraggableTreeRow extends StatelessWidget {
                   style: TextStyle(
                     color:
                         selected
-                            ? const Color(0xFF493584)
-                            : const Color(0xFF424958),
+                            ? EditorPalette.primary(context)
+                            : EditorPalette.text(context),
                     fontSize: 12,
                     fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
                   ),
@@ -396,7 +463,7 @@ class _DraggableTreeRow extends StatelessWidget {
       data: ExistingObjectDrag(node.id),
       feedback: Material(
         elevation: 8,
-        color: Colors.white,
+        color: EditorPalette.surface(context),
         borderRadius: BorderRadius.circular(8),
         child: SizedBox(
           width: 190,
@@ -429,10 +496,16 @@ class _DraggableTreeRow extends StatelessWidget {
         return AnimatedContainer(
           duration: const Duration(milliseconds: 100),
           decoration: BoxDecoration(
-            color: highlighted ? const Color(0xFFEDE9F8) : Colors.transparent,
+            color:
+                highlighted
+                    ? EditorPalette.primaryContainer(context)
+                    : Colors.transparent,
             borderRadius: BorderRadius.circular(8),
             border: Border.all(
-              color: highlighted ? const Color(0xFF6750A4) : Colors.transparent,
+              color:
+                  highlighted
+                      ? EditorPalette.primary(context)
+                      : Colors.transparent,
               width: 1,
             ),
           ),
@@ -443,6 +516,10 @@ class _DraggableTreeRow extends StatelessWidget {
   }
 
   String _label(BuilderNode node) {
+    if (node.type == 'componentGroup' &&
+        node.properties['groupName'] is String) {
+      return node.properties['groupName']! as String;
+    }
     final String? title = switch (node.type) {
       'text' =>
         node.properties['text'] is String
@@ -460,6 +537,7 @@ class _DraggableTreeRow extends StatelessWidget {
 
   String _typeLabel(String type) => switch (type) {
     'scaffold' => 'Scaffold',
+    'componentGroup' => 'Component Group',
     _ => catalogItemFor(type)?.label ?? type,
   };
 }
@@ -485,7 +563,7 @@ class _TreeDropZone extends StatelessWidget {
             decoration: BoxDecoration(
               color:
                   candidateData.isNotEmpty
-                      ? const Color(0xFF6750A4)
+                      ? EditorPalette.primary(context)
                       : Colors.transparent,
               borderRadius: BorderRadius.circular(4),
             ),
@@ -515,17 +593,21 @@ class _CatalogTile extends StatelessWidget {
         child: OutlinedButton(
           onPressed: onPressed,
           style: OutlinedButton.styleFrom(
-            foregroundColor: const Color(0xFF454D5B),
+            foregroundColor: EditorPalette.text(context),
             padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 9),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(9),
             ),
-            side: const BorderSide(color: Color(0xFFDCE0E7)),
+            side: BorderSide(color: EditorPalette.border(context)),
           ),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: <Widget>[
-              Icon(item.icon, size: 30, color: const Color(0xFF778394)),
+              Icon(
+                item.icon,
+                size: 30,
+                color: EditorPalette.mutedText(context),
+              ),
               const SizedBox(height: 7),
               Text(
                 item.label,
@@ -545,7 +627,7 @@ class _CatalogTile extends StatelessWidget {
     return Draggable<EditorDragData>(
       data: PaletteObjectDrag(item.type),
       feedback: Material(
-        color: const Color(0xFF6750A4),
+        color: EditorPalette.primary(context),
         elevation: 6,
         borderRadius: BorderRadius.circular(8),
         child: Padding(
@@ -553,11 +635,11 @@ class _CatalogTile extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
-              Icon(item.icon, size: 16, color: Colors.white),
+              Icon(item.icon, size: 16, color: EditorPalette.surface(context)),
               const SizedBox(width: 8),
               Text(
                 'New ${item.label}',
-                style: const TextStyle(color: Colors.white),
+                style: TextStyle(color: EditorPalette.surface(context)),
               ),
             ],
           ),

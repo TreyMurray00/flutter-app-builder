@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../models/builder_document.dart';
 import '../models/builder_action.dart';
+import 'document_theme.dart';
 import 'editor_drag_data.dart';
 import 'signature_pad.dart';
 
@@ -80,45 +81,69 @@ class CanvasPreview extends StatelessWidget {
             ),
             child: LayoutBuilder(
               builder: (BuildContext context, BoxConstraints constraints) {
-                const double outerPadding = 48;
+                const double outerPadding = 32;
                 final double width =
                     (constraints.maxWidth - outerPadding)
-                        .clamp(240, size.width)
+                        .clamp(0.0, size.width)
                         .toDouble();
                 final double height =
                     (constraints.maxHeight - outerPadding)
-                        .clamp(340, size.height)
+                        .clamp(0.0, size.height)
                         .toDouble();
                 final bool phoneFrame = size == PreviewSize.phone;
+                final Brightness brightness = switch (document
+                    .appTheme
+                    .brightness) {
+                  'dark' => Brightness.dark,
+                  'system' => MediaQuery.platformBrightnessOf(context),
+                  _ => Brightness.light,
+                };
+                final ThemeData previewTheme = buildDocumentTheme(
+                  document,
+                  brightness,
+                );
                 return Center(
-                  child: Container(
+                  child: SizedBox(
                     width: width,
                     height: height,
-                    clipBehavior: Clip.antiAlias,
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(phoneFrame ? 28 : 14),
-                      border: Border.all(color: const Color(0xFFD8DBE4)),
-                      boxShadow: const <BoxShadow>[
-                        BoxShadow(
-                          color: Color(0x160F172A),
-                          blurRadius: 24,
-                          offset: Offset(0, 10),
-                        ),
-                      ],
-                    ),
-                    child: KeyedSubtree(
-                      key: ValueKey<String>('preview-page-$activePageId'),
-                      child: Theme(
-                        data: ThemeData(
-                          useMaterial3: true,
-                          colorScheme: ColorScheme.fromSeed(
-                            seedColor: Color(document.seedColor),
+                    child: FittedBox(
+                      fit: BoxFit.contain,
+                      child: RepaintBoundary(
+                        child: Container(
+                          width: size.width,
+                          height: size.height,
+                          clipBehavior: Clip.antiAlias,
+                          decoration: BoxDecoration(
+                            color: previewTheme.scaffoldBackgroundColor,
+                            borderRadius: BorderRadius.circular(
+                              phoneFrame ? 28 : 14,
+                            ),
+                            border: Border.all(color: const Color(0xFFD8DBE4)),
+                            boxShadow: const <BoxShadow>[
+                              BoxShadow(
+                                color: Color(0x160F172A),
+                                blurRadius: 24,
+                                offset: Offset(0, 10),
+                              ),
+                            ],
                           ),
-                        ),
-                        child: Material(
-                          color: Colors.white,
-                          child: _renderNode(_previewRoot),
+                          child: MediaQuery(
+                            data: MediaQuery.of(
+                              context,
+                            ).copyWith(size: Size(size.width, size.height)),
+                            child: KeyedSubtree(
+                              key: ValueKey<String>(
+                                'preview-page-$activePageId',
+                              ),
+                              child: Theme(
+                                data: previewTheme,
+                                child: Material(
+                                  color: previewTheme.scaffoldBackgroundColor,
+                                  child: _renderNode(_previewRoot),
+                                ),
+                              ),
+                            ),
+                          ),
                         ),
                       ),
                     ),
@@ -149,7 +174,6 @@ class CanvasPreview extends StatelessWidget {
                 )
                 .toList();
         content = Scaffold(
-          backgroundColor: Colors.white,
           appBar: appBarNode == null ? null : _renderAppBar(appBarNode),
           floatingActionButton:
               floatingButtonNode == null
@@ -214,6 +238,9 @@ class CanvasPreview extends StatelessWidget {
           padding: _edgeInsets(node, 'padding', fallback: 16),
           child: _childrenWidget(node.children),
         );
+        break;
+      case 'componentGroup':
+        content = _childrenWidget(node.children);
         break;
       case 'card':
         final int color = _integer(
@@ -289,12 +316,15 @@ class CanvasPreview extends StatelessWidget {
         content = SizedBox(
           width: _number(node.properties['width'], 300, 0, 1200),
           height: _number(node.properties['height'], 220, 0, 1200),
-          child: GridView.count(
-            crossAxisCount: count,
-            crossAxisSpacing: gap,
-            mainAxisSpacing: gap,
+          child: GridView.builder(
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: count,
+              crossAxisSpacing: gap,
+              mainAxisSpacing: gap,
+            ),
             padding: EdgeInsets.zero,
-            children: node.children.map(_renderNode).toList(),
+            itemCount: node.children.length,
+            itemBuilder: (_, int index) => _renderNode(node.children[index]),
           ),
         );
         break;
@@ -302,7 +332,10 @@ class CanvasPreview extends StatelessWidget {
         content = SizedBox(
           width: _number(node.properties['width'], 300, 0, 1200),
           height: _number(node.properties['height'], 220, 0, 1200),
-          child: PageView(children: node.children.map(_renderNode).toList()),
+          child: PageView.builder(
+            itemCount: node.children.length,
+            itemBuilder: (_, int index) => _renderNode(node.children[index]),
+          ),
         );
         break;
       case 'swipeableStack':
@@ -326,27 +359,29 @@ class CanvasPreview extends StatelessWidget {
             rawFontSize is num
                 ? rawFontSize.toDouble().clamp(8, 96).toDouble()
                 : 18;
-        content = Padding(
-          padding: const EdgeInsets.symmetric(vertical: 6),
-          child: Text(
-            _resolveTemplate(
-              node.properties['text'] is String
-                  ? node.properties['text']! as String
-                  : 'Text',
-            ),
-            style: TextStyle(
-              fontSize: fontSize,
-              fontWeight:
-                  node.properties['fontWeight'] == 'bold'
-                      ? FontWeight.bold
-                      : FontWeight.normal,
-              color: Color(
-                node.properties['color'] is int
-                    ? node.properties['color']! as int
-                    : 0xFF303644,
+        content = Builder(
+          builder:
+              (BuildContext context) => Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                child: Text(
+                  _resolveTemplate(
+                    node.properties['text'] is String
+                        ? node.properties['text']! as String
+                        : 'Text',
+                  ),
+                  style: TextStyle(
+                    fontSize: fontSize,
+                    fontWeight:
+                        node.properties['fontWeight'] == 'bold'
+                            ? FontWeight.bold
+                            : FontWeight.normal,
+                    color:
+                        node.properties['color'] is int
+                            ? Color(node.properties['color']! as int)
+                            : Theme.of(context).colorScheme.onSurface,
+                  ),
+                ),
               ),
-            ),
-          ),
         );
         break;
       case 'button':
@@ -501,6 +536,31 @@ class CanvasPreview extends StatelessWidget {
     }
 
     Widget laidOutContent = content;
+    final double? widthFactor = _sizeFactor(node.properties['widthMode']);
+    final double? heightFactor = _sizeFactor(node.properties['heightMode']);
+    if (widthFactor != null || heightFactor != null) {
+      final Widget sizeChild = laidOutContent;
+      laidOutContent = LayoutBuilder(
+        builder:
+            (BuildContext context, BoxConstraints constraints) => SizedBox(
+              width:
+                  widthFactor == null
+                      ? null
+                      : (constraints.maxWidth.isFinite
+                              ? constraints.maxWidth
+                              : MediaQuery.sizeOf(context).width) *
+                          widthFactor,
+              height:
+                  heightFactor == null
+                      ? null
+                      : (constraints.maxHeight.isFinite
+                              ? constraints.maxHeight
+                              : MediaQuery.sizeOf(context).height) *
+                          heightFactor,
+              child: sizeChild,
+            ),
+      );
+    }
     if (node.type != 'container' &&
         node.type != 'padding' &&
         _hasInsets(node, 'padding')) {
@@ -628,6 +688,14 @@ class CanvasPreview extends StatelessWidget {
       _ => Column(mainAxisSize: MainAxisSize.min, children: widgets),
     };
   }
+
+  double? _sizeFactor(Object? value) => switch (value) {
+    'max' => 1,
+    'quarter' => 0.25,
+    'half' => 0.5,
+    'threeQuarter' => 0.75,
+    _ => null,
+  };
 
   BuilderNode? _firstChildOfType(BuilderNode parent, String type) {
     for (final BuilderNode child in parent.children) {

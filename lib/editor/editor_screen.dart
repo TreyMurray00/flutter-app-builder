@@ -1,17 +1,24 @@
 import 'dart:convert';
+import 'dart:io';
 
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../models/builder_action.dart';
 import '../models/builder_document.dart';
+import '../services/custom_function_preview_runner.dart';
+import '../services/dart_generator.dart';
 import '../services/flutter_project_exporter.dart';
 import '../services/project_store.dart';
 import 'canvas_preview.dart';
 import 'editor_controller.dart';
 import 'editor_drag_data.dart';
+import 'editor_palette.dart';
+import 'custom_data_structure_dialog.dart';
 import 'inspector_panel.dart';
 import 'widget_tree_panel.dart';
+import '../theme_mode_controller.dart';
 
 class EditorScreen extends StatefulWidget {
   const EditorScreen({super.key});
@@ -46,6 +53,9 @@ class _EditorScreenState extends State<EditorScreen> {
               onSave: _saveProject,
               onExportApp: _exportFlutterApp,
               onVariables: _manageVariables,
+              onDataStructures: _manageCustomDataStructures,
+              onGroups: _manageComponentGroups,
+              onDatabase: _manageDatabase,
               onUndo: editor.undo,
               onRedo: editor.redo,
             ),
@@ -72,38 +82,44 @@ class _EditorScreenState extends State<EditorScreen> {
                         onSelect: editor.selectNode,
                         onAddObject: editor.addObject,
                         onDrop: _handleDrop,
+                        componentGroups: editor.document.componentGroups,
+                        onAddGroup:
+                            (BuilderComponentGroup group) => editor.addObject(
+                              'componentGroup',
+                              groupId: group.id,
+                            ),
                       ),
                     ),
                   ),
                   const VerticalDivider(width: 1, thickness: 1),
                   Expanded(
                     child: ColoredBox(
-                      color: const Color(0xFFEAECF1),
+                      color: EditorPalette.surfaceInset(context),
                       child: Column(
                         children: <Widget>[
                           Padding(
                             padding: const EdgeInsets.fromLTRB(18, 12, 18, 7),
                             child: Row(
                               children: <Widget>[
-                                const Icon(
+                                Icon(
                                   Icons.touch_app_outlined,
                                   size: 15,
-                                  color: Color(0xFF7D8491),
+                                  color: EditorPalette.mutedText(context),
                                 ),
                                 const SizedBox(width: 7),
-                                const Text(
+                                Text(
                                   'Select a widget on the canvas to edit it',
                                   style: TextStyle(
                                     fontSize: 11,
-                                    color: Color(0xFF737B8A),
+                                    color: EditorPalette.mutedText(context),
                                   ),
                                 ),
                                 const Spacer(),
                                 Text(
                                   '${_previewSize.width.round()} × ${_previewSize.height.round()}',
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                     fontSize: 10,
-                                    color: Color(0xFF838A97),
+                                    color: EditorPalette.mutedText(context),
                                   ),
                                 ),
                               ],
@@ -138,13 +154,20 @@ class _EditorScreenState extends State<EditorScreen> {
                       child: InspectorPanel(
                         node: editor.selectedNode,
                         seedColor: editor.document.seedColor,
+                        appTheme: editor.document.appTheme,
                         onSetProperty: editor.setProperty,
                         onSetProperties: editor.setProperties,
                         onSetSeedColor: editor.setSeedColor,
+                        onSetAppTheme: editor.setAppTheme,
                         onDeleteNode: editor.deleteSelected,
                         onCreateVariable: _createVariable,
                         pages: editor.pages,
                         variables: editor.document.variables,
+                        customFunctions: editor.document.customFunctions,
+                        databaseCollections:
+                            editor.document.databaseCollections,
+                        onSetCustomFunctions: editor.setCustomFunctions,
+                        onCreateComponentGroup: _createComponentGroup,
                       ),
                     ),
                   ),
@@ -298,17 +321,27 @@ class _EditorScreenState extends State<EditorScreen> {
   Future<void> _openProject() async {
     if (!await _confirmDiscard()) return;
     if (!mounted) return;
-    final String? path = await _requestPath(
-      title: 'Open local project',
-      helpText: 'Enter the full path to an .appbuilder.json file.',
-      confirmLabel: 'Open',
+    final EditorController editor = context.read<EditorController>();
+    final XTypeGroup projectType = const XTypeGroup(
+      label: 'Local Flutter Builder project',
+      extensions: <String>['json'],
+      mimeTypes: <String>['application/json'],
+      uniformTypeIdentifiers: <String>['public.json'],
     );
-    if (path == null || !mounted) return;
+    final XFile? file = await openFile(
+      acceptedTypeGroups: <XTypeGroup>[projectType],
+      initialDirectory:
+          editor.projectPath == null
+              ? null
+              : File(editor.projectPath!).parent.path,
+      confirmButtonText: 'Open project',
+    );
+    if (file == null || !mounted) return;
     setState(() => _working = true);
     try {
       final StoredProject result = await context
           .read<ProjectStore>()
-          .openProject(path);
+          .openProject(file.path);
       if (mounted) {
         context.read<EditorController>().open(result.document, result.path);
         _showMessage('Opened ${_fileName(result.path)}');
@@ -322,20 +355,50 @@ class _EditorScreenState extends State<EditorScreen> {
 
   Future<void> _saveProject() async {
     final EditorController editor = context.read<EditorController>();
-    final String? path =
-        editor.projectPath ??
-        await _requestPath(
-          title: 'Save local project',
-          helpText: 'Choose a full path for the JSON design file.',
-          confirmLabel: 'Save',
-          initialPath: 'my_first_app.appbuilder.json',
-        );
-    if (path == null || !mounted) return;
+    final bool isNewSave = editor.projectPath == null;
+    String? path = editor.projectPath;
+    if (path == null) {
+      final String? folder = await getDirectoryPath(
+        confirmButtonText: 'Save in this folder',
+        canCreateDirectories: true,
+      );
+      if (folder == null) return;
+      final String fileName =
+          '${DartGenerator.packageNameFor(editor.document.name)}.appbuilder.json';
+      path =
+          '${Directory(folder).absolute.path}${Platform.pathSeparator}$fileName';
+    }
+    if (!mounted) return;
+    final String savePath = path;
+    if (isNewSave && await File(savePath).exists()) {
+      if (!mounted) return;
+      final bool? replace = await showDialog<bool>(
+        context: context,
+        builder:
+            (BuildContext dialogContext) => AlertDialog(
+              title: const Text('Project already exists'),
+              content: Text(
+                'Replace ${_fileName(savePath)} in the selected folder?',
+              ),
+              actions: <Widget>[
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, false),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.pop(dialogContext, true),
+                  child: const Text('Replace'),
+                ),
+              ],
+            ),
+      );
+      if (replace != true || !mounted) return;
+    }
     setState(() => _working = true);
     try {
       final String savedPath = await context.read<ProjectStore>().saveProject(
         editor.document,
-        path,
+        savePath,
       );
       if (mounted) {
         editor.markSaved(savedPath);
@@ -349,21 +412,24 @@ class _EditorScreenState extends State<EditorScreen> {
   }
 
   Future<void> _exportFlutterApp() async {
-    final String? path = await _requestPath(
-      title: 'Export Flutter app',
-      helpText:
-          'Choose a new folder for a complete Flutter project, including native platform files and copied image assets.',
-      confirmLabel: 'Export app',
-      initialPath: 'my_flutter_app',
-      pathLabel: 'Project folder',
-      pathHint: 'C:\\Users\\you\\Projects\\my_flutter_app',
+    final EditorController editor = context.read<EditorController>();
+    final String? parentFolder = await getDirectoryPath(
+      confirmButtonText: 'Choose parent folder',
+      canCreateDirectories: true,
+      initialDirectory:
+          editor.projectPath == null
+              ? null
+              : File(editor.projectPath!).parent.path,
     );
-    if (path == null || !mounted) return;
+    if (parentFolder == null || !mounted) return;
+    final String destination =
+        '${Directory(parentFolder).absolute.path}${Platform.pathSeparator}'
+        '${DartGenerator.packageNameFor(editor.document.name)}';
     setState(() => _working = true);
     try {
       final String generatedPath = await context
           .read<FlutterProjectExporter>()
-          .export(context.read<EditorController>().document, path);
+          .export(editor.document, destination);
       _showMessage('Exported Flutter app to $generatedPath');
     } catch (error) {
       _showMessage('Could not export Flutter app: $error', isError: true);
@@ -395,28 +461,6 @@ class _EditorScreenState extends State<EditorScreen> {
           ),
     );
     return shouldDiscard ?? false;
-  }
-
-  Future<String?> _requestPath({
-    required String title,
-    required String helpText,
-    required String confirmLabel,
-    String initialPath = '',
-    String pathLabel = 'File path',
-    String pathHint = 'C:\\Users\\you\\Projects\\app.json',
-  }) async {
-    return showDialog<String>(
-      context: context,
-      builder:
-          (BuildContext dialogContext) => _PathRequestDialog(
-            title: title,
-            helpText: helpText,
-            confirmLabel: confirmLabel,
-            initialPath: initialPath,
-            pathLabel: pathLabel,
-            pathHint: pathHint,
-          ),
-    );
   }
 
   void _showMessage(String message, {bool isError = false}) {
@@ -451,11 +495,23 @@ class _EditorScreenState extends State<EditorScreen> {
   Future<void> _runActions(BuilderNode node) async {
     final EditorController editor = context.read<EditorController>();
     final String sourcePageId = editor.activePageId;
-    for (final Map<String, Object?> action in BuilderAction.forNode(node)) {
+    await _executeActions(
+      BuilderAction.forNode(node),
+      editor: editor,
+      sourcePageId: sourcePageId,
+    );
+  }
+
+  Future<void> _executeActions(
+    List<Map<String, Object?>> actions, {
+    required EditorController editor,
+    required String sourcePageId,
+    Set<String> functionCallStack = const <String>{},
+  }) async {
+    for (final Map<String, Object?> action in actions) {
       switch (action['type']) {
         case 'navigate':
-          final String route =
-              action['route'] is String ? action['route']! as String : '';
+          final String route = _resolveActionText(action['route'], editor);
           if (route.isNotEmpty) {
             editor.navigateToRoute(
               route,
@@ -463,8 +519,7 @@ class _EditorScreenState extends State<EditorScreen> {
             );
           }
         case 'snackbar':
-          final String message =
-              action['message'] is String ? action['message']! as String : '';
+          final String message = _resolveActionText(action['message'], editor);
           if (message.isNotEmpty && mounted) {
             ScaffoldMessenger.of(context)
               ..hideCurrentSnackBar()
@@ -482,15 +537,9 @@ class _EditorScreenState extends State<EditorScreen> {
             builder:
                 (BuildContext dialogContext) => AlertDialog(
                   title: Text(
-                    action['title'] is String
-                        ? action['title']! as String
-                        : 'Notice',
+                    _resolveActionText(action['title'] ?? 'Notice', editor),
                   ),
-                  content: Text(
-                    action['message'] is String
-                        ? action['message']! as String
-                        : '',
-                  ),
+                  content: Text(_resolveActionText(action['message'], editor)),
                   actions: <Widget>[
                     TextButton(
                       onPressed: () => Navigator.pop(dialogContext),
@@ -504,7 +553,11 @@ class _EditorScreenState extends State<EditorScreen> {
         case 'setVariable':
           final String variableId = action['variableId'] as String? ?? '';
           if (variableId.isNotEmpty) {
-            editor.setVariableValue(variableId, action['value']);
+            final Object? value = action['value'];
+            editor.setVariableValue(
+              variableId,
+              value is String ? _resolveActionText(value, editor) : value,
+            );
           }
         case 'incrementVariable':
           final String variableId = action['variableId'] as String? ?? '';
@@ -529,11 +582,343 @@ class _EditorScreenState extends State<EditorScreen> {
               targetPageId,
               targetNodeId,
               property,
-              action['value'],
+              action['value'] is String &&
+                      <String>{
+                        'text',
+                        'label',
+                        'initialValue',
+                      }.contains(property)
+                  ? _resolveActionText(action['value'], editor)
+                  : action['value'],
             );
           }
+        case 'conditional':
+          final bool matches = _conditionMatches(action, editor);
+          await _executeActions(
+            _actionMaps(action[matches ? 'thenActions' : 'elseActions']),
+            editor: editor,
+            sourcePageId: sourcePageId,
+            functionCallStack: functionCallStack,
+          );
+        case 'loop':
+          final int iterations =
+              _integerValue(action['iterations'], 1).clamp(1, 1000).toInt();
+          for (int index = 0; index < iterations; index++) {
+            await _executeActions(
+              _actionMaps(action['actions']),
+              editor: editor,
+              sourcePageId: sourcePageId,
+              functionCallStack: functionCallStack,
+            );
+          }
+        case 'httpRequest':
+          await _runHttpAction(action, editor);
+        case 'databaseInsert':
+          final String collectionId = action['collectionId'] as String? ?? '';
+          if (!editor.document.databaseCollections.any(
+            (BuilderDatabaseCollection item) => item.id == collectionId,
+          )) {
+            _showActionError('Choose a database collection for this action.');
+            break;
+          }
+          try {
+            final Object? decoded = jsonDecode(
+              _resolveActionText(action['record'], editor),
+            );
+            if (decoded is! Map) {
+              throw const FormatException('Record must be a JSON object.');
+            }
+            editor.insertDatabaseRecord(
+              collectionId,
+              Map<String, Object?>.from(decoded),
+            );
+          } catch (error) {
+            _showActionError('Could not save database record: $error');
+          }
+        case 'databaseQuery':
+          final String collectionId = action['collectionId'] as String? ?? '';
+          final String variableId = action['resultVariableId'] as String? ?? '';
+          if (!editor.document.databaseCollections.any(
+            (BuilderDatabaseCollection item) => item.id == collectionId,
+          )) {
+            _showActionError('Choose a database collection for this action.');
+            break;
+          }
+          if (!editor.document.variables.any(
+            (BuilderVariable variable) =>
+                variable.id == variableId && variable.type == 'json',
+          )) {
+            _showActionError('Choose a JSON variable for loaded records.');
+            break;
+          }
+          editor.setVariableValue(
+            variableId,
+            editor.queryDatabaseRecords(collectionId),
+          );
+        case 'databaseDelete':
+          final String collectionId = action['collectionId'] as String? ?? '';
+          final String recordId = _resolveActionText(
+            action['recordId'],
+            editor,
+          );
+          if (!editor.deleteDatabaseRecord(collectionId, recordId)) {
+            _showActionError('Database record $recordId was not found.');
+          }
+        case 'customFunction':
+          final String functionId = action['functionId'] as String? ?? '';
+          BuilderCustomFunction? function;
+          for (final BuilderCustomFunction candidate
+              in editor.document.customFunctions) {
+            if (candidate.id == functionId) function = candidate;
+          }
+          if (function == null) {
+            _showActionError(
+              functionId.isEmpty
+                  ? 'Choose a custom function for this action.'
+                  : 'The selected custom function could not be found.',
+            );
+            break;
+          }
+          if (functionCallStack.contains(functionId)) {
+            _showActionError('Custom function calls cannot be recursive.');
+            break;
+          }
+          if (function.body.trim().isNotEmpty) {
+            try {
+              final CustomFunctionPreviewResult result =
+                  await CustomFunctionPreviewRunner.run(
+                    body: function.body,
+                    variables: editor.document.variables,
+                    appState: editor.appVariableValues,
+                    dataStructures: editor.document.customDataStructures,
+                  );
+              if (!mounted) return;
+              for (final MapEntry<String, Object?> entry
+                  in result.appState.entries) {
+                editor.setVariableValue(entry.key, entry.value);
+              }
+              for (final Map<String, Object?> effect in result.effects) {
+                final String value = effect['value'] as String? ?? '';
+                switch (effect['type']) {
+                  case 'message':
+                    if (value.isNotEmpty) {
+                      ScaffoldMessenger.of(context)
+                        ..hideCurrentSnackBar()
+                        ..showSnackBar(
+                          SnackBar(
+                            content: Text(value),
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
+                    }
+                  case 'navigate':
+                    if (value.isNotEmpty) editor.navigateToRoute(value);
+                  case 'back':
+                    editor.previewBack();
+                  case 'log':
+                    debugPrint('[Custom function] $value');
+                }
+              }
+            } catch (error) {
+              _showActionError('Custom function preview failed: $error');
+            }
+            break;
+          }
+          await _executeActions(
+            function.actions,
+            editor: editor,
+            sourcePageId: sourcePageId,
+            functionCallStack: <String>{...functionCallStack, functionId},
+          );
       }
     }
+  }
+
+  bool _conditionMatches(Map<String, Object?> action, EditorController editor) {
+    final String variableId = action['variableId'] as String? ?? '';
+    final Object? actual = editor.appVariableValues[variableId];
+    final String operator = action['operator'] as String? ?? 'equals';
+    final String expected = _resolveActionText(action['value'], editor);
+    if (actual is num && <String>{'equals', 'notEquals'}.contains(operator)) {
+      final double? number = double.tryParse(expected);
+      return number != null &&
+          (operator == 'notEquals'
+              ? actual.toDouble() != number
+              : actual.toDouble() == number);
+    }
+    if (actual is bool && <String>{'equals', 'notEquals'}.contains(operator)) {
+      final bool equal = actual == (expected.trim().toLowerCase() == 'true');
+      return operator == 'notEquals' ? !equal : equal;
+    }
+    switch (operator) {
+      case 'isTrue':
+        return actual == true;
+      case 'isFalse':
+        return actual == false;
+      case 'notEquals':
+        return actual?.toString() != expected;
+      case 'greaterThan':
+        final double? left = actual is num ? actual.toDouble() : null;
+        final double? right = double.tryParse(expected);
+        return left != null && right != null && left > right;
+      case 'lessThan':
+        final double? left = actual is num ? actual.toDouble() : null;
+        final double? right = double.tryParse(expected);
+        return left != null && right != null && left < right;
+      case 'contains':
+        return actual is String
+            ? actual.contains(expected)
+            : actual is List && actual.contains(expected);
+      default:
+        return actual?.toString() == expected;
+    }
+  }
+
+  Future<void> _runHttpAction(
+    Map<String, Object?> action,
+    EditorController editor,
+  ) async {
+    final String url = _resolveActionText(action['url'], editor).trim();
+    final Uri? uri = Uri.tryParse(url);
+    if (uri == null || !<String>{'http', 'https'}.contains(uri.scheme)) {
+      _showActionError('Enter a valid HTTP or HTTPS URL.');
+      return;
+    }
+    final String method =
+        <String>{
+              'GET',
+              'POST',
+              'PUT',
+              'PATCH',
+              'DELETE',
+            }.contains(action['method'])
+            ? action['method']! as String
+            : 'GET';
+    final HttpClient client = HttpClient();
+    try {
+      final HttpClientRequest request = await client
+          .openUrl(method, uri)
+          .timeout(const Duration(seconds: 30));
+      final Object? rawHeaders = action['headers'];
+      Object? headers = rawHeaders;
+      if (headers is String) {
+        try {
+          headers = jsonDecode(headers);
+        } on FormatException {
+          headers = null;
+        }
+      }
+      if (headers is Map) {
+        for (final MapEntry<Object?, Object?> header in headers.entries) {
+          request.headers.set(
+            header.key.toString(),
+            _resolveActionText(header.value, editor),
+          );
+        }
+      }
+      final String body = _resolveActionText(action['body'], editor);
+      if (body.isNotEmpty) request.write(body);
+      final HttpClientResponse response = await request.close().timeout(
+        const Duration(seconds: 30),
+      );
+      final String responseBody = await utf8.decoder
+          .bind(response)
+          .join()
+          .timeout(const Duration(seconds: 30));
+      final String responseVariableId =
+          action['responseVariableId'] as String? ?? '';
+      if (responseVariableId.isNotEmpty) {
+        editor.setVariableValue(
+          responseVariableId,
+          _parseHttpResponse(responseBody, responseVariableId, editor),
+        );
+      }
+      if (response.statusCode >= 400) {
+        _showActionError('HTTP request returned ${response.statusCode}.');
+      }
+    } catch (error) {
+      _showActionError('Request failed: $error');
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  Object _parseHttpResponse(
+    String body,
+    String variableId,
+    EditorController editor,
+  ) {
+    BuilderVariable? variable;
+    for (final BuilderVariable candidate in editor.document.variables) {
+      if (candidate.id == variableId) variable = candidate;
+    }
+    if (variable == null) return body;
+    switch (variable.type) {
+      case 'number':
+      case 'double':
+        return double.tryParse(body) ?? variable.initialValue;
+      case 'integer':
+        return int.tryParse(body) ?? variable.initialValue;
+      case 'boolean':
+        return body.trim().toLowerCase() == 'true';
+      case 'json':
+        try {
+          return (jsonDecode(body) as Object?) ?? body;
+        } on FormatException {
+          return body;
+        }
+      case 'stringList':
+        try {
+          final Object? value = jsonDecode(body);
+          return value is List
+              ? value.map((Object? item) => item.toString()).toList()
+              : <String>[];
+        } on FormatException {
+          return <String>[];
+        }
+      default:
+        return body;
+    }
+  }
+
+  String _resolveActionText(Object? raw, EditorController editor) {
+    final String template = raw?.toString() ?? '';
+    final RegExp token = RegExp(r'\$\{([^}]+)\}|\$([A-Za-z_][A-Za-z0-9_]*)');
+    return template.replaceAllMapped(token, (Match match) {
+      final String key = (match[1] ?? match[2] ?? '').trim();
+      BuilderVariable? variable;
+      for (final BuilderVariable candidate in editor.document.variables) {
+        if (candidate.id == key || candidate.name == key) variable = candidate;
+      }
+      return variable == null
+          ? match[0]!
+          : editor.appVariableValues[variable.id]?.toString() ?? '';
+    });
+  }
+
+  List<Map<String, Object?>> _actionMaps(Object? raw) =>
+      raw is List
+          ? raw
+              .whereType<Map<Object?, Object?>>()
+              .map(
+                (Map<Object?, Object?> item) => <String, Object?>{
+                  for (final MapEntry<Object?, Object?> entry in item.entries)
+                    entry.key.toString(): entry.value,
+                },
+              )
+              .toList()
+          : <Map<String, Object?>>[];
+
+  int _integerValue(Object? raw, int fallback) =>
+      raw is num
+          ? raw.round()
+          : int.tryParse(raw?.toString() ?? '') ?? fallback;
+
+  void _showActionError(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
   }
 
   Future<void> _manageVariables() async {
@@ -618,6 +1003,534 @@ class _EditorScreenState extends State<EditorScreen> {
                     icon: const Icon(Icons.add),
                     label: const Text('Add variable'),
                   ),
+                  TextButton(
+                    onPressed: () => Navigator.pop(dialogContext),
+                    child: const Text('Done'),
+                  ),
+                ],
+              );
+            },
+          ),
+    );
+  }
+
+  Future<void> _manageCustomDataStructures() async {
+    final EditorController editor = context.read<EditorController>();
+    await showDialog<void>(
+      context: context,
+      builder:
+          (BuildContext dialogContext) => StatefulBuilder(
+            builder: (BuildContext context, StateSetter setDialogState) {
+              Future<void> editStructure([
+                BuilderCustomDataStructure? existing,
+              ]) async {
+                final BuilderCustomDataStructure? saved =
+                    await showDialog<BuilderCustomDataStructure>(
+                      context: context,
+                      builder:
+                          (_) => CustomDataStructureDialog(
+                            structures: editor.document.customDataStructures,
+                            structure: existing,
+                          ),
+                    );
+                if (saved == null) return;
+                editor.setCustomDataStructures(<BuilderCustomDataStructure>[
+                  ...editor.document.customDataStructures.where(
+                    (BuilderCustomDataStructure item) => item.id != saved.id,
+                  ),
+                  saved,
+                ]);
+                setDialogState(() {});
+              }
+
+              return AlertDialog(
+                title: const Text('Custom data structures'),
+                content: SizedBox(
+                  width: 500,
+                  height: 360,
+                  child:
+                      editor.document.customDataStructures.isEmpty
+                          ? const Center(
+                            child: Text(
+                              'Create Dart classes, enums, or typedefs to use in custom functions and exported apps.',
+                              textAlign: TextAlign.center,
+                            ),
+                          )
+                          : ListView.separated(
+                            itemCount:
+                                editor.document.customDataStructures.length,
+                            separatorBuilder:
+                                (_, __) => const Divider(height: 1),
+                            itemBuilder: (BuildContext context, int index) {
+                              final BuilderCustomDataStructure structure =
+                                  editor.document.customDataStructures[index];
+                              return ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                leading: const Icon(Icons.data_object_outlined),
+                                title: Text(structure.name),
+                                subtitle: Text(
+                                  structure.body.split('\n').first,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                onTap: () => editStructure(structure),
+                                trailing: IconButton(
+                                  tooltip: 'Delete data type',
+                                  onPressed: () {
+                                    editor.setCustomDataStructures(
+                                      editor.document.customDataStructures
+                                          .where(
+                                            (BuilderCustomDataStructure item) =>
+                                                item.id != structure.id,
+                                          )
+                                          .toList(),
+                                    );
+                                    setDialogState(() {});
+                                  },
+                                  icon: const Icon(Icons.delete_outline),
+                                ),
+                              );
+                            },
+                          ),
+                ),
+                actions: <Widget>[
+                  TextButton.icon(
+                    onPressed: () => editStructure(),
+                    icon: const Icon(Icons.add),
+                    label: const Text('Add data type'),
+                  ),
+                  TextButton(
+                    onPressed: () => Navigator.pop(dialogContext),
+                    child: const Text('Done'),
+                  ),
+                ],
+              );
+            },
+          ),
+    );
+  }
+
+  Future<void> _manageDatabase() async {
+    final EditorController editor = context.read<EditorController>();
+    await showDialog<void>(
+      context: context,
+      builder:
+          (BuildContext dialogContext) => StatefulBuilder(
+            builder: (BuildContext context, StateSetter setDialogState) {
+              Future<void> editCollection([
+                BuilderDatabaseCollection? existing,
+              ]) async {
+                final (String, List<Map<String, Object?>>)? draft =
+                    await _databaseCollectionDraft(existing);
+                if (draft == null) return;
+                final List<BuilderDatabaseCollection> current =
+                    editor.document.databaseCollections;
+                if (existing == null) {
+                  int suffix = 1;
+                  final Set<String> ids =
+                      current
+                          .map((BuilderDatabaseCollection item) => item.id)
+                          .toSet();
+                  while (ids.contains('db_collection_$suffix')) {
+                    suffix++;
+                  }
+                  editor.setDatabaseCollections(<BuilderDatabaseCollection>[
+                    ...current,
+                    BuilderDatabaseCollection(
+                      id: 'db_collection_$suffix',
+                      name: draft.$1,
+                      seedRecords: draft.$2,
+                    ),
+                  ]);
+                } else {
+                  editor.setDatabaseCollections(<BuilderDatabaseCollection>[
+                    for (final BuilderDatabaseCollection item in current)
+                      item.id == existing.id
+                          ? item.copyWith(name: draft.$1, seedRecords: draft.$2)
+                          : item,
+                  ]);
+                }
+                setDialogState(() {});
+              }
+
+              return AlertDialog(
+                title: const Text('Local database'),
+                content: SizedBox(
+                  width: 500,
+                  height: 360,
+                  child:
+                      editor.document.databaseCollections.isEmpty
+                          ? const Center(
+                            child: Text(
+                              'Create collections here. Actions can save, load, and delete records in the preview and exported app.',
+                              textAlign: TextAlign.center,
+                            ),
+                          )
+                          : ListView.separated(
+                            itemCount:
+                                editor.document.databaseCollections.length,
+                            separatorBuilder:
+                                (_, __) => const Divider(height: 1),
+                            itemBuilder: (BuildContext context, int index) {
+                              final BuilderDatabaseCollection collection =
+                                  editor.document.databaseCollections[index];
+                              return ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                leading: const Icon(Icons.storage_outlined),
+                                title: Text(collection.name),
+                                subtitle: Text(
+                                  '${collection.seedRecords.length} starter records',
+                                ),
+                                onTap: () => editCollection(collection),
+                                trailing: IconButton(
+                                  tooltip: 'Delete collection',
+                                  onPressed: () {
+                                    editor.setDatabaseCollections(
+                                      editor.document.databaseCollections
+                                          .where(
+                                            (BuilderDatabaseCollection item) =>
+                                                item.id != collection.id,
+                                          )
+                                          .toList(),
+                                    );
+                                    setDialogState(() {});
+                                  },
+                                  icon: const Icon(Icons.delete_outline),
+                                ),
+                              );
+                            },
+                          ),
+                ),
+                actions: <Widget>[
+                  TextButton.icon(
+                    onPressed: () => editCollection(),
+                    icon: const Icon(Icons.add),
+                    label: const Text('Add collection'),
+                  ),
+                  TextButton(
+                    onPressed: () => Navigator.pop(dialogContext),
+                    child: const Text('Done'),
+                  ),
+                ],
+              );
+            },
+          ),
+    );
+  }
+
+  Future<(String, List<Map<String, Object?>>)?> _databaseCollectionDraft(
+    BuilderDatabaseCollection? existing,
+  ) {
+    String name = existing?.name ?? '';
+    String seedText = const JsonEncoder.withIndent(
+      '  ',
+    ).convert(existing?.seedRecords ?? <Map<String, Object?>>[]);
+    return showDialog<(String, List<Map<String, Object?>>)>(
+      context: context,
+      builder:
+          (BuildContext dialogContext) => StatefulBuilder(
+            builder: (BuildContext context, StateSetter setDialogState) {
+              String? error;
+              List<Map<String, Object?>> records = <Map<String, Object?>>[];
+              if (name.trim().isEmpty) {
+                error = 'Enter a collection name.';
+              } else if (context
+                  .read<EditorController>()
+                  .document
+                  .databaseCollections
+                  .any(
+                    (BuilderDatabaseCollection item) =>
+                        item.id != existing?.id &&
+                        item.name.toLowerCase() == name.trim().toLowerCase(),
+                  )) {
+                error = 'A collection with this name already exists.';
+              }
+              try {
+                final Object? decoded = jsonDecode(seedText);
+                if (decoded is! List<Object?> ||
+                    decoded.any(
+                      (Object? item) => item is! Map<String, Object?>,
+                    )) {
+                  error ??= 'Starter records must be a JSON array of objects.';
+                } else {
+                  records =
+                      decoded
+                          .map(
+                            (Object? item) => Map<String, Object?>.from(
+                              item! as Map<String, Object?>,
+                            ),
+                          )
+                          .toList();
+                }
+              } on FormatException {
+                error ??= 'Enter valid JSON starter records.';
+              }
+              return AlertDialog(
+                title: Text(
+                  existing == null ? 'Add collection' : 'Edit collection',
+                ),
+                content: SizedBox(
+                  width: 460,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: <Widget>[
+                      TextFormField(
+                        initialValue: name,
+                        autofocus: true,
+                        decoration: const InputDecoration(
+                          labelText: 'Collection name',
+                        ),
+                        onChanged:
+                            (String value) =>
+                                setDialogState(() => name = value),
+                      ),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        initialValue: seedText,
+                        minLines: 5,
+                        maxLines: 8,
+                        decoration: const InputDecoration(
+                          labelText: 'Starter records (JSON array)',
+                          hintText: '[{"title":"First item"}]',
+                          border: OutlineInputBorder(),
+                        ),
+                        onChanged:
+                            (String value) =>
+                                setDialogState(() => seedText = value),
+                      ),
+                      if (error != null) ...<Widget>[
+                        const SizedBox(height: 8),
+                        Text(error, style: const TextStyle(color: Colors.red)),
+                      ],
+                    ],
+                  ),
+                ),
+                actions: <Widget>[
+                  TextButton(
+                    onPressed: () => Navigator.pop(dialogContext),
+                    child: const Text('Cancel'),
+                  ),
+                  FilledButton(
+                    onPressed:
+                        error == null
+                            ? () => Navigator.pop(dialogContext, (
+                              name.trim(),
+                              records,
+                            ))
+                            : null,
+                    child: const Text('Save collection'),
+                  ),
+                ],
+              );
+            },
+          ),
+    );
+  }
+
+  Future<void> _createComponentGroup(BuilderNode node) async {
+    final EditorController editor = context.read<EditorController>();
+    final TextEditingController name = TextEditingController(
+      text:
+          node.type == 'componentGroup' &&
+                  node.properties['groupName'] is String
+              ? '${node.properties['groupName']} copy'
+              : 'Reusable group',
+    );
+    String? error;
+    final String? result = await showDialog<String>(
+      context: context,
+      builder:
+          (BuildContext dialogContext) => StatefulBuilder(
+            builder: (BuildContext context, StateSetter setDialogState) {
+              final bool duplicate = editor.document.componentGroups.any(
+                (BuilderComponentGroup group) =>
+                    group.name.toLowerCase() == name.text.trim().toLowerCase(),
+              );
+              error =
+                  name.text.trim().isEmpty
+                      ? 'Enter a group name.'
+                      : duplicate
+                      ? 'A group with that name already exists.'
+                      : null;
+              return AlertDialog(
+                title: const Text('Save reusable group'),
+                content: SizedBox(
+                  width: 360,
+                  child: TextField(
+                    controller: name,
+                    autofocus: true,
+                    decoration: InputDecoration(
+                      labelText: 'Group name',
+                      errorText: error,
+                    ),
+                    onChanged: (_) => setDialogState(() {}),
+                    onSubmitted: (_) {
+                      if (error == null)
+                        Navigator.pop(dialogContext, name.text.trim());
+                    },
+                  ),
+                ),
+                actions: <Widget>[
+                  TextButton(
+                    onPressed: () => Navigator.pop(dialogContext),
+                    child: const Text('Cancel'),
+                  ),
+                  FilledButton(
+                    onPressed:
+                        error == null
+                            ? () =>
+                                Navigator.pop(dialogContext, name.text.trim())
+                            : null,
+                    child: const Text('Save group'),
+                  ),
+                ],
+              );
+            },
+          ),
+    );
+    name.dispose();
+    if (result == null || !mounted) return;
+    final String id = editor.addComponentGroup(
+      name: result,
+      sourceNodeId: node.id,
+    );
+    if (id.isNotEmpty) _showMessage('Saved $result to reusable groups');
+  }
+
+  Future<void> _manageComponentGroups() async {
+    final EditorController editor = context.read<EditorController>();
+    await showDialog<void>(
+      context: context,
+      builder:
+          (BuildContext dialogContext) => StatefulBuilder(
+            builder: (BuildContext context, StateSetter setDialogState) {
+              Future<void> renameGroup(BuilderComponentGroup group) async {
+                final TextEditingController name = TextEditingController(
+                  text: group.name,
+                );
+                String? error;
+                final String? result = await showDialog<String>(
+                  context: context,
+                  builder:
+                      (BuildContext context) => StatefulBuilder(
+                        builder: (
+                          BuildContext context,
+                          StateSetter setNameState,
+                        ) {
+                          final bool duplicate = editor.document.componentGroups
+                              .any(
+                                (BuilderComponentGroup item) =>
+                                    item.id != group.id &&
+                                    item.name.toLowerCase() ==
+                                        name.text.trim().toLowerCase(),
+                              );
+                          error =
+                              name.text.trim().isEmpty
+                                  ? 'Enter a group name.'
+                                  : duplicate
+                                  ? 'A group with that name already exists.'
+                                  : null;
+                          return AlertDialog(
+                            title: const Text('Rename component group'),
+                            content: TextField(
+                              controller: name,
+                              autofocus: true,
+                              decoration: InputDecoration(
+                                labelText: 'Group name',
+                                errorText: error,
+                              ),
+                              onChanged: (_) => setNameState(() {}),
+                            ),
+                            actions: <Widget>[
+                              TextButton(
+                                onPressed: () => Navigator.pop(context),
+                                child: const Text('Cancel'),
+                              ),
+                              FilledButton(
+                                onPressed:
+                                    error == null
+                                        ? () => Navigator.pop(
+                                          context,
+                                          name.text.trim(),
+                                        )
+                                        : null,
+                                child: const Text('Save name'),
+                              ),
+                            ],
+                          );
+                        },
+                      ),
+                );
+                name.dispose();
+                if (result == null) return;
+                editor.setComponentGroups(<BuilderComponentGroup>[
+                  for (final BuilderComponentGroup item
+                      in editor.document.componentGroups)
+                    item.id == group.id ? item.copyWith(name: result) : item,
+                ]);
+                setDialogState(() {});
+              }
+
+              return AlertDialog(
+                title: const Text('Reusable component groups'),
+                content: SizedBox(
+                  width: 460,
+                  height: 340,
+                  child:
+                      editor.document.componentGroups.isEmpty
+                          ? const Center(
+                            child: Text(
+                              'Select a component and choose “Save as reusable group” in the inspector to create one.',
+                              textAlign: TextAlign.center,
+                            ),
+                          )
+                          : ListView.separated(
+                            itemCount: editor.document.componentGroups.length,
+                            separatorBuilder:
+                                (_, __) => const Divider(height: 1),
+                            itemBuilder: (BuildContext context, int index) {
+                              final BuilderComponentGroup group =
+                                  editor.document.componentGroups[index];
+                              return ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                leading: const Icon(
+                                  Icons.dashboard_customize_outlined,
+                                ),
+                                title: Text(group.name),
+                                subtitle: Text(
+                                  '${group.root.type} · ${group.root.depthFirst().length} components',
+                                ),
+                                trailing: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: <Widget>[
+                                    IconButton(
+                                      tooltip: 'Rename group',
+                                      onPressed: () => renameGroup(group),
+                                      icon: const Icon(Icons.edit_outlined),
+                                    ),
+                                    IconButton(
+                                      tooltip: 'Delete group',
+                                      onPressed: () {
+                                        editor.setComponentGroups(
+                                          editor.document.componentGroups
+                                              .where(
+                                                (BuilderComponentGroup item) =>
+                                                    item.id != group.id,
+                                              )
+                                              .toList(),
+                                        );
+                                        setDialogState(() {});
+                                      },
+                                      icon: const Icon(Icons.delete_outline),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
+                ),
+                actions: <Widget>[
                   TextButton(
                     onPressed: () => Navigator.pop(dialogContext),
                     child: const Text('Done'),
@@ -860,22 +1773,22 @@ class _PagesBar extends StatelessWidget {
   Widget build(BuildContext context) => Container(
     height: 45,
     padding: const EdgeInsets.symmetric(horizontal: 14),
-    decoration: const BoxDecoration(
-      color: Color(0xFFF8F9FB),
-      border: Border(bottom: BorderSide(color: Color(0xFFE1E4EA))),
+    decoration: BoxDecoration(
+      color: EditorPalette.surfaceRaised(context),
+      border: Border(bottom: BorderSide(color: EditorPalette.border(context))),
     ),
     child: Row(
       children: <Widget>[
-        const Icon(
+        Icon(
           Icons.web_asset_outlined,
           size: 16,
-          color: Color(0xFF727987),
+          color: EditorPalette.mutedText(context),
         ),
         const SizedBox(width: 8),
-        const Text(
+        Text(
           'Pages',
           style: TextStyle(
-            color: Color(0xFF606775),
+            color: EditorPalette.text(context),
             fontSize: 11,
             fontWeight: FontWeight.w700,
           ),
@@ -903,14 +1816,14 @@ class _PagesBar extends StatelessWidget {
                       decoration: BoxDecoration(
                         color:
                             selected
-                                ? const Color(0xFFEDE9F8)
+                                ? EditorPalette.primaryContainer(context)
                                 : Colors.transparent,
                         borderRadius: BorderRadius.circular(7),
                         border: Border.all(
                           color:
                               selected
-                                  ? const Color(0xFFD5CDEF)
-                                  : const Color(0xFFE2E5EB),
+                                  ? EditorPalette.selectedContainer(context)
+                                  : EditorPalette.border(context),
                         ),
                       ),
                       child: Row(
@@ -921,8 +1834,8 @@ class _PagesBar extends StatelessWidget {
                             size: 14,
                             color:
                                 selected
-                                    ? const Color(0xFF6750A4)
-                                    : const Color(0xFF777F8D),
+                                    ? EditorPalette.primary(context)
+                                    : EditorPalette.mutedText(context),
                           ),
                           const SizedBox(width: 6),
                           Flexible(
@@ -935,15 +1848,15 @@ class _PagesBar extends StatelessWidget {
                                     selected
                                         ? FontWeight.w700
                                         : FontWeight.w500,
-                                color: const Color(0xFF373D49),
+                                color: EditorPalette.text(context),
                               ),
                             ),
                           ),
                           const SizedBox(width: 6),
                           Text(
                             page.route,
-                            style: const TextStyle(
-                              color: Color(0xFF858C99),
+                            style: TextStyle(
+                              color: EditorPalette.mutedText(context),
                               fontSize: 9,
                             ),
                           ),
@@ -958,9 +1871,9 @@ class _PagesBar extends StatelessWidget {
                       tooltip: 'Page options',
                       padding: EdgeInsets.zero,
                       iconSize: 16,
-                      icon: const Icon(
+                      icon: Icon(
                         Icons.more_vert,
-                        color: Color(0xFF858C99),
+                        color: EditorPalette.mutedText(context),
                       ),
                       onSelected: (String action) {
                         switch (action) {
@@ -1037,6 +1950,9 @@ class _Toolbar extends StatelessWidget {
     required this.onSave,
     required this.onExportApp,
     required this.onVariables,
+    required this.onDataStructures,
+    required this.onGroups,
+    required this.onDatabase,
     required this.onUndo,
     required this.onRedo,
   });
@@ -1051,18 +1967,26 @@ class _Toolbar extends StatelessWidget {
   final VoidCallback onSave;
   final VoidCallback onExportApp;
   final VoidCallback onVariables;
+  final VoidCallback onDataStructures;
+  final VoidCallback onGroups;
+  final VoidCallback onDatabase;
   final VoidCallback onUndo;
   final VoidCallback onRedo;
 
   @override
   Widget build(BuildContext context) {
     final EditorController editor = context.watch<EditorController>();
+    final ThemeModeController? themeMode =
+        context.watch<ThemeModeController?>();
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       height: 64,
       padding: const EdgeInsets.symmetric(horizontal: 18),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        border: Border(bottom: BorderSide(color: Color(0xFFE1E4EA))),
+      decoration: BoxDecoration(
+        color: EditorPalette.surface(context),
+        border: Border(
+          bottom: BorderSide(color: EditorPalette.border(context)),
+        ),
       ),
       child: Row(
         children: <Widget>[
@@ -1070,24 +1994,24 @@ class _Toolbar extends StatelessWidget {
             width: 34,
             height: 34,
             decoration: BoxDecoration(
-              color: const Color(0xFFEDE9F8),
+              color: EditorPalette.primaryContainer(context),
               borderRadius: BorderRadius.circular(10),
             ),
-            child: const Icon(
+            child: Icon(
               Icons.auto_awesome,
               size: 19,
-              color: Color(0xFF6750A4),
+              color: EditorPalette.primary(context),
             ),
           ),
           const SizedBox(width: 10),
-          const Column(
+          Column(
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
               Text(
                 'LOCAL FLOW',
                 style: TextStyle(
-                  color: Color(0xFF303644),
+                  color: EditorPalette.text(context),
                   fontSize: 12,
                   fontWeight: FontWeight.w800,
                   letterSpacing: 0.8,
@@ -1095,12 +2019,15 @@ class _Toolbar extends StatelessWidget {
               ),
               Text(
                 'Flutter app builder',
-                style: TextStyle(color: Color(0xFF858B98), fontSize: 10),
+                style: TextStyle(
+                  color: EditorPalette.mutedText(context),
+                  fontSize: 10,
+                ),
               ),
             ],
           ),
           const SizedBox(width: 19),
-          Container(width: 1, height: 28, color: const Color(0xFFE4E6EB)),
+          Container(width: 1, height: 28, color: EditorPalette.border(context)),
           const SizedBox(width: 9),
           Tooltip(
             message: 'New project',
@@ -1125,13 +2052,13 @@ class _Toolbar extends StatelessWidget {
               icon: Icon(
                 editor.isDirty ? Icons.save_as_outlined : Icons.save_outlined,
                 size: 19,
-                color: editor.isDirty ? const Color(0xFF6750A4) : null,
+                color: editor.isDirty ? EditorPalette.primary(context) : null,
               ),
               visualDensity: VisualDensity.compact,
             ),
           ),
           const SizedBox(width: 5),
-          Container(width: 1, height: 28, color: const Color(0xFFE4E6EB)),
+          Container(width: 1, height: 28, color: EditorPalette.border(context)),
           const SizedBox(width: 5),
           IconButton(
             onPressed: canUndo && !isWorking ? onUndo : null,
@@ -1155,26 +2082,76 @@ class _Toolbar extends StatelessWidget {
                 visualDensity: VisualDensity.compact,
                 padding: const EdgeInsets.symmetric(horizontal: 9),
                 textStyle: const TextStyle(fontSize: 11),
-                side: const BorderSide(color: Color(0xFFE0DCEC)),
-                foregroundColor: const Color(0xFF5D4A91),
+                side: BorderSide(color: EditorPalette.border(context)),
+                foregroundColor: EditorPalette.primary(context),
+              ),
+            ),
+          ),
+          const SizedBox(width: 5),
+          PopupMenuButton<String>(
+            enabled: !isWorking,
+            tooltip: 'Project resources',
+            onSelected: (String value) {
+              switch (value) {
+                case 'dataTypes':
+                  onDataStructures();
+                case 'groups':
+                  onGroups();
+                case 'database':
+                  onDatabase();
+              }
+            },
+            itemBuilder:
+                (BuildContext context) => const <PopupMenuEntry<String>>[
+                  PopupMenuItem(value: 'dataTypes', child: Text('Data types')),
+                  PopupMenuItem(value: 'groups', child: Text('Groups')),
+                  PopupMenuItem(value: 'database', child: Text('Database')),
+                ],
+            child: Container(
+              height: 32,
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              decoration: BoxDecoration(
+                border: Border.all(color: EditorPalette.border(context)),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  Icon(Icons.storage_outlined, size: 16),
+                  SizedBox(width: 6),
+                  Text('Resources', style: TextStyle(fontSize: 11)),
+                  Icon(Icons.arrow_drop_down, size: 18),
+                ],
               ),
             ),
           ),
           const Spacer(),
+          IconButton(
+            onPressed: themeMode?.toggle,
+            tooltip: isDark ? 'Switch to light mode' : 'Switch to dark mode',
+            icon: Icon(
+              isDark ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
+              size: 19,
+            ),
+            visualDensity: VisualDensity.compact,
+          ),
           Container(
             height: 34,
             padding: const EdgeInsets.symmetric(horizontal: 9),
             decoration: BoxDecoration(
-              color: const Color(0xFFF5F6F9),
+              color: EditorPalette.surfaceInset(context),
               borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: const Color(0xFFE4E6EB)),
+              border: Border.all(color: EditorPalette.border(context)),
             ),
             child: DropdownButtonHideUnderline(
               child: DropdownButton<PreviewSize>(
                 value: previewSize,
                 borderRadius: BorderRadius.circular(8),
                 icon: const Icon(Icons.expand_more, size: 17),
-                style: const TextStyle(fontSize: 11, color: Color(0xFF414857)),
+                style: TextStyle(
+                  fontSize: 11,
+                  color: EditorPalette.text(context),
+                ),
                 items:
                     PreviewSize.values.map((PreviewSize size) {
                       return DropdownMenuItem<PreviewSize>(
@@ -1184,7 +2161,7 @@ class _Toolbar extends StatelessWidget {
                             Icon(
                               _previewIcon(size),
                               size: 15,
-                              color: const Color(0xFF737B8A),
+                              color: EditorPalette.mutedText(context),
                             ),
                             const SizedBox(width: 7),
                             Text(size.label),
@@ -1211,8 +2188,8 @@ class _Toolbar extends StatelessWidget {
                     : const Icon(Icons.code, size: 17),
             label: const Text('Export Flutter App'),
             style: FilledButton.styleFrom(
-              backgroundColor: const Color(0xFF6750A4),
-              foregroundColor: Colors.white,
+              backgroundColor: EditorPalette.primary(context),
+              foregroundColor: Theme.of(context).colorScheme.onPrimary,
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
               textStyle: const TextStyle(
                 fontSize: 11,
@@ -1248,9 +2225,9 @@ class _StatusBar extends StatelessWidget {
     return Container(
       height: 31,
       padding: const EdgeInsets.symmetric(horizontal: 16),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        border: Border(top: BorderSide(color: Color(0xFFE1E4EA))),
+      decoration: BoxDecoration(
+        color: EditorPalette.surface(context),
+        border: Border(top: BorderSide(color: EditorPalette.border(context))),
       ),
       child: Row(
         children: <Widget>[
@@ -1262,7 +2239,10 @@ class _StatusBar extends StatelessWidget {
           const SizedBox(width: 7),
           Text(
             isDirty ? 'Unsaved changes' : 'All changes saved',
-            style: const TextStyle(fontSize: 10, color: Color(0xFF6D7482)),
+            style: TextStyle(
+              fontSize: 10,
+              color: EditorPalette.mutedText(context),
+            ),
           ),
           const Spacer(),
           Flexible(
@@ -1270,95 +2250,28 @@ class _StatusBar extends StatelessWidget {
               projectPath ?? '${document.name} · not saved yet',
               overflow: TextOverflow.ellipsis,
               textAlign: TextAlign.right,
-              style: const TextStyle(fontSize: 10, color: Color(0xFF8A909D)),
+              style: TextStyle(
+                fontSize: 10,
+                color: EditorPalette.mutedText(context),
+              ),
             ),
           ),
           const SizedBox(width: 16),
-          const Icon(Icons.computer, size: 13, color: Color(0xFF8A909D)),
+          Icon(
+            Icons.computer,
+            size: 13,
+            color: EditorPalette.mutedText(context),
+          ),
           const SizedBox(width: 5),
-          const Text(
+          Text(
             'Local project',
-            style: TextStyle(fontSize: 10, color: Color(0xFF6D7482)),
+            style: TextStyle(
+              fontSize: 10,
+              color: EditorPalette.mutedText(context),
+            ),
           ),
         ],
       ),
-    );
-  }
-}
-
-class _PathRequestDialog extends StatefulWidget {
-  const _PathRequestDialog({
-    required this.title,
-    required this.helpText,
-    required this.confirmLabel,
-    required this.initialPath,
-    required this.pathLabel,
-    required this.pathHint,
-  });
-
-  final String title;
-  final String helpText;
-  final String confirmLabel;
-  final String initialPath;
-  final String pathLabel;
-  final String pathHint;
-
-  @override
-  State<_PathRequestDialog> createState() => _PathRequestDialogState();
-}
-
-class _PathRequestDialogState extends State<_PathRequestDialog> {
-  late final TextEditingController _pathController;
-
-  @override
-  void initState() {
-    super.initState();
-    _pathController = TextEditingController(text: widget.initialPath);
-  }
-
-  @override
-  void dispose() {
-    _pathController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    void submit() {
-      final String path = _pathController.text.trim();
-      if (path.isNotEmpty) Navigator.pop(context, path);
-    }
-
-    return AlertDialog(
-      title: Text(widget.title),
-      content: SizedBox(
-        width: 440,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Text(widget.helpText, style: const TextStyle(fontSize: 13)),
-            const SizedBox(height: 14),
-            TextField(
-              controller: _pathController,
-              autofocus: true,
-              onSubmitted: (_) => submit(),
-              decoration: InputDecoration(
-                labelText: widget.pathLabel,
-                hintText: widget.pathHint,
-                border: const OutlineInputBorder(),
-              ),
-            ),
-          ],
-        ),
-      ),
-      actions: <Widget>[
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(onPressed: submit, child: Text(widget.confirmLabel)),
-      ],
     );
   }
 }

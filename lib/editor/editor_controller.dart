@@ -2,12 +2,12 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 
-import '../models/builder_action.dart';
 import '../models/builder_document.dart';
 
 class EditorController extends ChangeNotifier {
   EditorController() {
     _synchronizeAppVariables();
+    _resetPreviewDatabase();
   }
 
   BuilderDocument _document = BuilderDocument.sample();
@@ -17,6 +17,9 @@ class EditorController extends ChangeNotifier {
   final Map<String, Object?> _appVariableValues = <String, Object?>{};
   final Map<String, Map<String, Object?>> _widgetOverrides =
       <String, Map<String, Object?>>{};
+  final Map<String, List<Map<String, Object?>>> _previewDatabase =
+      <String, List<Map<String, Object?>>>{};
+  final Map<String, int> _nextDatabaseId = <String, int>{};
   String? _projectPath;
   int _documentSessionId = 0;
   String _selectedNodeId = 'text_1';
@@ -121,6 +124,31 @@ class EditorController extends ChangeNotifier {
   void deleteVariable(String id) {
     if (!_document.variables.any((BuilderVariable item) => item.id == id))
       return;
+    List<Map<String, Object?>> cleanActions(Object? raw) {
+      if (raw is! List) return <Map<String, Object?>>[];
+      final List<Map<String, Object?>> result = <Map<String, Object?>>[];
+      for (final Object? value in raw) {
+        if (value is! Map) continue;
+        final Map<String, Object?> action = <String, Object?>{
+          for (final MapEntry<Object?, Object?> entry in value.entries)
+            entry.key.toString(): entry.value,
+        };
+        if (action['variableId'] == id) continue;
+        if (action['responseVariableId'] == id) {
+          action['responseVariableId'] = '';
+        }
+        for (final String key in <String>[
+          'thenActions',
+          'elseActions',
+          'actions',
+        ]) {
+          if (action[key] is List) action[key] = cleanActions(action[key]);
+        }
+        result.add(action);
+      }
+      return result;
+    }
+
     BuilderNode cleanTree(BuilderNode node) {
       final Map<String, Object?> props = <String, Object?>{...node.properties};
       final Object? rawBindings = props['bindings'];
@@ -136,11 +164,7 @@ class EditorController extends ChangeNotifier {
       }
       final Object? rawActions = props['actions'];
       if (rawActions is List) {
-        props['actions'] =
-            rawActions.where((Object? raw) {
-              if (raw is! Map) return true;
-              return raw['variableId'] != id;
-            }).toList();
+        props['actions'] = cleanActions(rawActions);
       }
       return node.copyWith(
         properties: props,
@@ -160,6 +184,14 @@ class EditorController extends ChangeNotifier {
                 .map(
                   (BuilderPage page) =>
                       page.copyWith(root: cleanTree(page.root)),
+                )
+                .toList(),
+        customFunctions:
+            _document.customFunctions
+                .map(
+                  (BuilderCustomFunction function) => function.copyWith(
+                    actions: cleanActions(function.actions),
+                  ),
                 )
                 .toList(),
       ),
@@ -342,6 +374,197 @@ class EditorController extends ChangeNotifier {
     );
   }
 
+  void setCustomFunctions(List<BuilderCustomFunction> functions) {
+    final String current = jsonEncode(
+      _document.customFunctions
+          .map((BuilderCustomFunction function) => function.toJson())
+          .toList(),
+    );
+    final String next = jsonEncode(
+      functions
+          .map((BuilderCustomFunction function) => function.toJson())
+          .toList(),
+    );
+    if (current == next) return;
+    _commit(_document.copyWith(customFunctions: functions));
+  }
+
+  void setCustomDataStructures(List<BuilderCustomDataStructure> structures) {
+    final String current = jsonEncode(
+      _document.customDataStructures
+          .map((BuilderCustomDataStructure item) => item.toJson())
+          .toList(),
+    );
+    final String next = jsonEncode(
+      structures
+          .map((BuilderCustomDataStructure item) => item.toJson())
+          .toList(),
+    );
+    if (current == next) return;
+    _commit(_document.copyWith(customDataStructures: structures));
+  }
+
+  void setAppTheme(BuilderTheme theme) {
+    if (jsonEncode(_document.appTheme.toJson()) == jsonEncode(theme.toJson())) {
+      return;
+    }
+    _commit(_document.copyWith(appTheme: theme));
+  }
+
+  void setDatabaseCollections(List<BuilderDatabaseCollection> collections) {
+    final String current = jsonEncode(
+      _document.databaseCollections
+          .map((BuilderDatabaseCollection item) => item.toJson())
+          .toList(),
+    );
+    final String next = jsonEncode(
+      collections
+          .map((BuilderDatabaseCollection item) => item.toJson())
+          .toList(),
+    );
+    if (current == next) return;
+    _commit(
+      _document.copyWith(databaseCollections: collections),
+      resetDatabase: true,
+    );
+  }
+
+  int? insertDatabaseRecord(String collectionId, Map<String, Object?> record) {
+    final List<Map<String, Object?>>? rows = _previewDatabase[collectionId];
+    if (rows == null) return null;
+    final int id = _nextDatabaseId[collectionId] ?? 1;
+    _nextDatabaseId[collectionId] = id + 1;
+    rows.add(<String, Object?>{...record, '_id': id});
+    notifyListeners();
+    return id;
+  }
+
+  List<Map<String, Object?>> queryDatabaseRecords(String collectionId) =>
+      List<Map<String, Object?>>.unmodifiable(
+        (_previewDatabase[collectionId] ?? <Map<String, Object?>>[]).map(
+          (Map<String, Object?> row) => Map<String, Object?>.unmodifiable(row),
+        ),
+      );
+
+  bool deleteDatabaseRecord(String collectionId, Object? id) {
+    final List<Map<String, Object?>>? rows = _previewDatabase[collectionId];
+    final int? recordId = int.tryParse(id?.toString() ?? '');
+    if (rows == null || recordId == null) return false;
+    final int before = rows.length;
+    rows.removeWhere((Map<String, Object?> row) => row['_id'] == recordId);
+    if (rows.length != before) notifyListeners();
+    return rows.length != before;
+  }
+
+  void _resetPreviewDatabase() {
+    _previewDatabase.clear();
+    _nextDatabaseId.clear();
+    for (final BuilderDatabaseCollection collection
+        in _document.databaseCollections) {
+      final List<Map<String, Object?>> rows = <Map<String, Object?>>[];
+      for (final Map<String, Object?> record in collection.seedRecords) {
+        final int id = rows.length + 1;
+        rows.add(<String, Object?>{...record, '_id': id});
+      }
+      _previewDatabase[collection.id] = rows;
+      _nextDatabaseId[collection.id] = rows.length + 1;
+    }
+  }
+
+  void setComponentGroups(List<BuilderComponentGroup> groups) {
+    final String current = jsonEncode(
+      _document.componentGroups
+          .map((BuilderComponentGroup item) => item.toJson())
+          .toList(),
+    );
+    final String next = jsonEncode(
+      groups.map((BuilderComponentGroup item) => item.toJson()).toList(),
+    );
+    if (current == next) return;
+    final Map<String, String> namesById = <String, String>{
+      for (final BuilderComponentGroup group in groups) group.id: group.name,
+    };
+    BuilderNode refreshGroupLabels(BuilderNode node) {
+      final List<BuilderNode> children =
+          node.children.map(refreshGroupLabels).toList();
+      final Map<String, Object?> properties = <String, Object?>{
+        ...node.properties,
+      };
+      bool propertiesChanged = false;
+      final Object? groupId = properties['groupId'];
+      if (node.type == 'componentGroup' &&
+          groupId is String &&
+          namesById.containsKey(groupId) &&
+          properties['groupName'] != namesById[groupId]) {
+        properties['groupName'] = namesById[groupId];
+        propertiesChanged = true;
+      }
+      final bool childrenChanged = children.asMap().entries.any(
+        (MapEntry<int, BuilderNode> entry) =>
+            !identical(entry.value, node.children[entry.key]),
+      );
+      if (!propertiesChanged && !childrenChanged) return node;
+      return node.copyWith(
+        properties: propertiesChanged ? properties : null,
+        children: children,
+      );
+    }
+
+    _commit(
+      _document.copyWith(
+        componentGroups:
+            groups
+                .map(
+                  (BuilderComponentGroup group) =>
+                      group.copyWith(root: refreshGroupLabels(group.root)),
+                )
+                .toList(),
+        root: refreshGroupLabels(_document.root),
+        pages:
+            _document.pages
+                .map(
+                  (BuilderPage page) =>
+                      page.copyWith(root: refreshGroupLabels(page.root)),
+                )
+                .toList(),
+      ),
+    );
+  }
+
+  String addComponentGroup({
+    required String name,
+    required String sourceNodeId,
+  }) {
+    final BuilderNode? source = activeRoot.findById(sourceNodeId);
+    if (source == null ||
+        source.id == activeRoot.id ||
+        <String>{
+          'scaffold',
+          'appBar',
+          'floatingActionButton',
+        }.contains(source.type)) {
+      return '';
+    }
+    int suffix = 1;
+    final Set<String> ids =
+        _document.componentGroups
+            .map((BuilderComponentGroup group) => group.id)
+            .toSet();
+    while (ids.contains('component_group_$suffix')) {
+      suffix++;
+    }
+    final String id = 'component_group_$suffix';
+    _commit(
+      _document.copyWith(
+        componentGroups: <BuilderComponentGroup>[
+          ..._document.componentGroups,
+          BuilderComponentGroup(id: id, name: name, root: source),
+        ],
+      ),
+    );
+    return id;
+  }
+
   void setSeedColor(int color) {
     if (_document.seedColor == color) return;
     _commit(_document.copyWith(seedColor: color));
@@ -489,7 +712,15 @@ class EditorController extends ChangeNotifier {
     String type, {
     String? targetId,
     BuilderDropPosition position = BuilderDropPosition.inside,
+    String? groupId,
   }) {
+    BuilderComponentGroup? componentGroup;
+    if (type == 'componentGroup') {
+      for (final BuilderComponentGroup group in _document.componentGroups) {
+        if (group.id == groupId) componentGroup = group;
+      }
+      if (componentGroup == null) return;
+    }
     final Map<String, Object?> properties = switch (type) {
       'text' => <String, Object?>{
         'text': 'New text',
@@ -607,6 +838,10 @@ class EditorController extends ChangeNotifier {
         'backgroundColor': 0xFF6750A4,
         'foregroundColor': 0xFFFFFFFF,
       },
+      'componentGroup' => <String, Object?>{
+        'groupId': componentGroup!.id,
+        'groupName': componentGroup.name,
+      },
       _ => <String, Object?>{},
     };
     if (properties.isEmpty) return;
@@ -632,11 +867,27 @@ class EditorController extends ChangeNotifier {
       suffix++;
     }
     final String id = '${prefix}_$suffix';
+    ids.add(id);
+    final List<BuilderNode> children = <BuilderNode>[];
+    if (componentGroup != null) {
+      final Map<String, String> idMap = <String, String>{};
+      for (final BuilderNode templateNode in componentGroup.root.depthFirst()) {
+        String templatePrefix = templateNode.type;
+        int templateSuffix = ids.length + 1;
+        while (ids.contains('${templatePrefix}_$templateSuffix')) {
+          templateSuffix++;
+        }
+        final String clonedId = '${templatePrefix}_$templateSuffix';
+        ids.add(clonedId);
+        idMap[templateNode.id] = clonedId;
+      }
+      children.add(_cloneComponentGroupNode(componentGroup.root, idMap));
+    }
     final BuilderNode node = BuilderNode(
       id: id,
       type: type,
       properties: properties,
-      children: const <BuilderNode>[],
+      children: children,
     );
     BuilderNode nextRoot = activeRoot.appendToId(parent.id, node);
     if (targetId != null && position != BuilderDropPosition.inside) {
@@ -645,6 +896,60 @@ class EditorController extends ChangeNotifier {
     _selectedNodeId = id;
     _commit(_copyWithActiveRoot(nextRoot));
   }
+
+  BuilderNode _cloneComponentGroupNode(
+    BuilderNode source,
+    Map<String, String> idMap,
+  ) {
+    final Map<String, Object?> properties = <String, Object?>{
+      ...source.properties,
+    };
+    final Object? rawActions = properties['actions'];
+    if (rawActions is List) {
+      properties['actions'] = _remapGroupActionTargets(rawActions, idMap);
+    }
+    return BuilderNode(
+      id: idMap[source.id] ?? source.id,
+      type: source.type,
+      properties: properties,
+      children:
+          source.children
+              .map(
+                (BuilderNode child) => _cloneComponentGroupNode(child, idMap),
+              )
+              .toList(),
+    );
+  }
+
+  List<Object?> _remapGroupActionTargets(
+    List<Object?> rawActions,
+    Map<String, String> idMap,
+  ) =>
+      rawActions.map<Object?>((Object? rawAction) {
+        if (rawAction is! Map) return rawAction;
+        final Map<String, Object?> action = <String, Object?>{
+          for (final MapEntry<Object?, Object?> entry in rawAction.entries)
+            entry.key.toString(): entry.value,
+        };
+        if (action['targetNodeId'] is String &&
+            idMap.containsKey(action['targetNodeId'])) {
+          action['targetNodeId'] = idMap[action['targetNodeId']];
+          if (action['targetPageId'] is String) {
+            action['targetPageId'] = _activePageId;
+          }
+        }
+        for (final String key in <String>[
+          'thenActions',
+          'elseActions',
+          'actions',
+        ]) {
+          final Object? nested = action[key];
+          if (nested is List) {
+            action[key] = _remapGroupActionTargets(nested, idMap);
+          }
+        }
+        return action;
+      }).toList();
 
   void moveObject(
     String sourceId,
@@ -676,6 +981,7 @@ class EditorController extends ChangeNotifier {
     _document = _undoStack.removeLast();
     _isDirty = true;
     _synchronizeAppVariables();
+    _resetPreviewDatabase();
     _normalizeSelection();
     notifyListeners();
   }
@@ -686,6 +992,7 @@ class EditorController extends ChangeNotifier {
     _document = _redoStack.removeLast();
     _isDirty = true;
     _synchronizeAppVariables();
+    _resetPreviewDatabase();
     _normalizeSelection();
     notifyListeners();
   }
@@ -703,6 +1010,7 @@ class EditorController extends ChangeNotifier {
     _appVariableValues.clear();
     _widgetOverrides.clear();
     _synchronizeAppVariables();
+    _resetPreviewDatabase();
     notifyListeners();
   }
 
@@ -719,6 +1027,7 @@ class EditorController extends ChangeNotifier {
     _appVariableValues.clear();
     _widgetOverrides.clear();
     _synchronizeAppVariables();
+    _resetPreviewDatabase();
     notifyListeners();
   }
 
@@ -728,12 +1037,13 @@ class EditorController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void _commit(BuilderDocument next) {
+  void _commit(BuilderDocument next, {bool resetDatabase = false}) {
     _undoStack.add(_document);
     if (_undoStack.length > 100) _undoStack.removeAt(0);
     _redoStack.clear();
     _document = next;
     _synchronizeAppVariables();
+    if (resetDatabase) _resetPreviewDatabase();
     _isDirty = true;
     notifyListeners();
   }
@@ -793,6 +1103,29 @@ class EditorController extends ChangeNotifier {
     String oldRoute,
     String newRoute,
   ) {
+    List<Map<String, Object?>> updateActions(Object? raw) {
+      if (raw is! List) return <Map<String, Object?>>[];
+      return raw.whereType<Map<Object?, Object?>>().map((
+        Map<Object?, Object?> value,
+      ) {
+        final Map<String, Object?> action = <String, Object?>{
+          for (final MapEntry<Object?, Object?> entry in value.entries)
+            entry.key.toString(): entry.value,
+        };
+        if (action['type'] == 'navigate' && action['route'] == oldRoute) {
+          action['route'] = newRoute;
+        }
+        for (final String key in <String>[
+          'thenActions',
+          'elseActions',
+          'actions',
+        ]) {
+          if (action[key] is List) action[key] = updateActions(action[key]);
+        }
+        return action;
+      }).toList();
+    }
+
     BuilderNode updateTree(BuilderNode node) {
       final List<BuilderNode> children = node.children.map(updateTree).toList();
       final Map<String, Object?> properties = <String, Object?>{
@@ -804,19 +1137,10 @@ class EditorController extends ChangeNotifier {
         propertiesChanged = true;
       }
       if (node.properties['actions'] is List) {
-        final List<Map<String, Object?>> actions = BuilderAction.forNode(node);
-        bool actionsChanged = false;
-        for (int index = 0; index < actions.length; index++) {
-          if (actions[index]['type'] == 'navigate' &&
-              actions[index]['route'] == oldRoute) {
-            actions[index] = <String, Object?>{
-              ...actions[index],
-              'route': newRoute,
-            };
-            actionsChanged = true;
-          }
-        }
-        if (actionsChanged) {
+        final List<Map<String, Object?>> actions = updateActions(
+          node.properties['actions'],
+        );
+        if (jsonEncode(actions) != jsonEncode(node.properties['actions'])) {
           properties['actions'] = actions;
           propertiesChanged = true;
         }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:local_flutter_builder/editor/canvas_preview.dart';
@@ -203,7 +204,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('export path dialog stays mounted through its exit animation', (
+  testWidgets('export uses the native folder picker and completes cleanly', (
     WidgetTester tester,
   ) async {
     tester.view.physicalSize = const Size(1600, 1000);
@@ -213,6 +214,17 @@ void main() {
 
     final EditorController editor = EditorController();
     addTearDown(editor.dispose);
+    const MethodChannel fileSelectorChannel = MethodChannel(
+      'plugins.flutter.io/file_selector',
+    );
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          fileSelectorChannel,
+          (MethodCall call) async {
+            expect(call.method, 'getDirectoryPath');
+            return r'C:\output';
+          },
+        );
     await tester.pumpWidget(
       MultiProvider(
         providers: [
@@ -228,16 +240,6 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('Export Flutter App'));
-    await tester.pumpAndSettle();
-    await tester.enterText(
-      find.byWidgetPredicate(
-        (Widget widget) =>
-            widget is TextField &&
-            widget.decoration?.labelText == 'Project folder',
-      ),
-      r'C:\output\counter_app',
-    );
-    await tester.tap(find.text('Export app'));
     await tester.pumpAndSettle();
 
     expect(find.textContaining('Exported Flutter app'), findsOneWidget);
