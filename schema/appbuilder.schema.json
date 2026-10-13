@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local-flutter-builder.invalid/schema/appbuilder.schema.json",
+  "title": "Local Flutter Builder project",
+  "description": "Versioned JSON design document for Local Flutter Builder.",
+  "type": "object",
+  "required": ["schemaVersion", "name", "theme", "root"],
+  "properties": {
+    "schemaVersion": { "type": "integer", "minimum": 1, "maximum": 8 },
+    "name": { "type": "string", "minLength": 1 },
+    "theme": {
+      "type": "object",
+      "required": ["seedColor"],
+      "properties": {
+        "seedColor": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+        "brightness": { "enum": ["light", "dark", "system"] },
+        "fontFamily": { "type": "string" },
+        "cornerRadius": { "type": "number", "minimum": 0, "maximum": 48 },
+        "backgroundColor": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+        "textColor": { "type": "integer", "minimum": 0, "maximum": 4294967295 }
+      },
+      "additionalProperties": true
+    },
+    "root": { "$ref": "#/$defs/node" },
+    "pages": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "route", "root"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "name": { "type": "string", "minLength": 1 },
+          "route": { "type": "string", "minLength": 1 },
+          "root": { "$ref": "#/$defs/node" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "variables": { "type": "array", "items": { "$ref": "#/$defs/variable" } },
+    "customFunctions": { "type": "array", "items": { "$ref": "#/$defs/function" } },
+    "customDataStructures": { "type": "array", "items": { "$ref": "#/$defs/dataStructure" } },
+    "componentGroups": { "type": "array", "items": { "$ref": "#/$defs/componentGroup" } },
+    "databaseCollections": { "type": "array", "items": { "$ref": "#/$defs/databaseCollection" } },
+    "initialPageId": { "type": "string" }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "node": {
+      "type": "object",
+      "required": ["id", "type"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "type": {
+          "enum": ["scaffold", "column", "row", "container", "stack", "listView", "gridView", "pageView", "swipeableStack", "card", "padding", "componentGroup", "text", "button", "image", "icon", "divider", "verticalDivider", "textField", "checkbox", "switch", "signature", "appBar", "floatingActionButton"]
+        },
+        "properties": { "type": "object", "additionalProperties": true },
+        "children": { "type": "array", "items": { "$ref": "#/$defs/node" } }
+      },
+      "additionalProperties": true
+    },
+    "variable": {
+      "type": "object",
+      "required": ["id", "name", "type", "initialValue"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "type": { "enum": ["string", "number", "integer", "double", "boolean", "stringList", "json"] },
+        "initialValue": {}
+      },
+      "additionalProperties": true
+    },
+    "function": {
+      "type": "object",
+      "required": ["id", "name"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "body": { "type": "string" },
+        "actions": { "type": "array", "items": { "type": "object" } }
+      },
+      "additionalProperties": true
+    },
+    "dataStructure": {
+      "type": "object",
+      "required": ["id", "name", "body"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "body": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "componentGroup": {
+      "type": "object",
+      "required": ["id", "name", "root"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "root": { "$ref": "#/$defs/node" }
+      },
+      "additionalProperties": true
+    },
+    "databaseCollection": {
+      "type": "object",
+      "required": ["id", "name"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "seedRecords": { "type": "array", "items": { "type": "object" } }
+      },
+      "additionalProperties": true
+    }
+  }
+}

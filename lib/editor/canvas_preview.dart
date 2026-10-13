@@ -6,6 +6,7 @@ import '../models/builder_document.dart';
 import '../models/builder_action.dart';
 import 'document_theme.dart';
 import 'editor_drag_data.dart';
+import '../services/project_store.dart';
 import 'signature_pad.dart';
 
 enum PreviewSize {
@@ -33,6 +34,7 @@ class CanvasPreview extends StatelessWidget {
     this.activePageId = 'home',
     this.variableValues = const <String, Object?>{},
     this.widgetOverrides = const <String, Map<String, Object?>>{},
+    this.projectPath,
     super.key,
   });
 
@@ -46,6 +48,7 @@ class CanvasPreview extends StatelessWidget {
   final String activePageId;
   final Map<String, Object?> variableValues;
   final Map<String, Map<String, Object?>> widgetOverrides;
+  final String? projectPath;
   final void Function(
     EditorDragData data,
     String targetId,
@@ -426,7 +429,7 @@ class CanvasPreview extends StatelessWidget {
               source.trim().isEmpty
                   ? _imagePlaceholder()
                   : Image.file(
-                    File(source),
+                    File(resolveProjectAssetPath(projectPath, source)),
                     fit: fit,
                     errorBuilder: (_, __, ___) => _imagePlaceholder(),
                   ),

@@ -1,0 +1,70 @@
+{
+  "schemaVersion": 8,
+  "name": "Hello World",
+  "theme": {
+    "seedColor": 4284960930,
+    "brightness": "light",
+    "fontFamily": "",
+    "cornerRadius": 16
+  },
+  "root": {
+    "id": "home_scaffold",
+    "type": "scaffold",
+    "properties": {},
+    "children": [
+      {
+        "id": "home_column",
+        "type": "column",
+        "properties": {
+          "mainAxisAlignment": "center",
+          "crossAxisAlignment": "center",
+          "padding": 24
+        },
+        "children": [
+          {
+            "id": "welcome_title",
+            "type": "text",
+            "properties": {
+              "text": "Hello, world!",
+              "fontSize": 32,
+              "fontWeight": "bold"
+            },
+            "children": []
+          },
+          {
+            "id": "welcome_message",
+            "type": "text",
+            "properties": {
+              "text": "Built locally with Local Flutter Builder.",
+              "fontSize": 16
+            },
+            "children": []
+          },
+          {
+            "id": "continue_button",
+            "type": "button",
+            "properties": {
+              "label": "Continue",
+              "style": "filled",
+              "actions": [
+                {
+                  "id": "show_welcome",
+                  "type": "snackbar",
+                  "message": "Your app is ready to customize."
+                }
+              ]
+            },
+            "children": []
+          }
+        ]
+      }
+    ]
+  },
+  "pages": [],
+  "variables": [],
+  "customFunctions": [],
+  "customDataStructures": [],
+  "componentGroups": [],
+  "databaseCollections": [],
+  "initialPageId": "home"
+}

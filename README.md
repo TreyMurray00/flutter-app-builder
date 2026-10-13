@@ -22,6 +22,19 @@ flutter run -d windows
 
 Use `-d macos` or `-d linux` on the corresponding host. After package dependencies have been cached, Flutter supports local/offline work with the installed SDK and packages.
 
+## Agent and CLI workflow
+
+Agents can create and export projects without operating the desktop editor. Read [`SKILL.md`](SKILL.md) for the manifest workflow and supported widgets. The versioned JSON format is described by [`schema/appbuilder.schema.json`](schema/appbuilder.schema.json), with a working [example project](examples/hello_world.appbuilder.json).
+
+```powershell
+dart run bin/app_builder.dart init .\my_app.appbuilder.json --name "My App"
+dart run bin/app_builder.dart validate .\my_app.appbuilder.json --json
+dart run bin/app_builder.dart inspect .\my_app.appbuilder.json --json
+dart run bin/app_builder.dart export .\my_app.appbuilder.json --output .\my_app
+```
+
+The CLI consumes the same project model and Dart generator as the editor. Export creates a new Flutter project directory using the locally installed Flutter SDK; the destination must not already exist. It scaffolds platform files with `flutter create --no-pub` and does not resolve packages.
+
 ## Prototype workflow
 
 1. Select a widget in the left tree or preview canvas to show its properties in the inspector.
@@ -35,5 +48,7 @@ Use `-d macos` or `-d linux` on the corresponding host. After package dependenci
 9. Add actions to buttons and other interactive widgets. Actions can use if/else branches, repeat a nested action list up to 1,000 times, send GET, POST, PUT, PATCH, and DELETE requests, or call reusable custom functions. Custom functions can use typed Dart statements or built-in action steps. Typed functions run in the preview using an interpreter with common Dart core, math, and JSON APIs; use `getVariable`, `setVariable`, `showMessage`, `navigateTo`, `back`, and `print` to interact with the preview. External packages and direct Flutter context APIs are available only in exported apps. HTTP responses can be saved to an app variable. Use `${variableId}` or `$variableName` in request URLs, headers, and bodies to insert app state.
 10. Save a new `.appbuilder.json` project by choosing its folder; the file name is based on the project name. Open existing projects through the native file picker.
 11. Choose **Export Flutter App**, then select a parent folder. The builder creates the Flutter project in a new subfolder based on the project name, using the local Flutter CLI to create Android, iOS, web, Windows, macOS, and Linux runners before writing the app source, manifest, readme, smoke test, and copied image assets.
+
+When you save a project, referenced images are copied into a neighboring asset folder and stored with relative paths, so the project can move with its assets. Saved projects also keep a recovery copy after edits; reopening a project restores that copy when it is newer than the main file. The first save still sets the project folder.
 
 The builder project manifest is versioned JSON. Generated apps use Flutter Material widgets and do not depend on a proprietary runtime package. HTTP actions run only when the user triggers them in the preview or running app. Exported projects include the `http` package when an HTTP action is configured or typed custom code references `http.`. Exported projects with database collections include `sembast`, `sembast_web`, `path_provider`, and `path`. The editor uses `provider` for state, `file_selector` for project folders, and `dart_eval` to interpret custom functions in preview.

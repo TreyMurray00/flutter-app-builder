@@ -16,8 +16,12 @@ class _ImmediateFlutterProjectExporter extends FlutterProjectExporter {
   _ImmediateFlutterProjectExporter() : super(generator: DartGenerator());
 
   @override
-  Future<String> export(BuilderDocument document, String destination) async =>
-      destination;
+  Future<String> export(
+    BuilderDocument document,
+    String destination, {
+    String? projectPath,
+    void Function(String line)? onOutput,
+  }) async => destination;
 }
 
 void main() {

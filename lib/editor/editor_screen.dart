@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -30,13 +31,77 @@ class EditorScreen extends StatefulWidget {
 class _EditorScreenState extends State<EditorScreen> {
   PreviewSize _previewSize = PreviewSize.phone;
   bool _working = false;
+  bool _showPalette = true;
+  bool _showInspector = true;
+  String? _workingMessage;
+  EditorController? _observedEditor;
+  Timer? _autosaveTimer;
+  Future<void>? _autosaveInFlight;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final EditorController editor = context.read<EditorController>();
+    if (_observedEditor == editor) return;
+    _observedEditor?.removeListener(_scheduleAutosave);
+    _observedEditor = editor;
+    editor.addListener(_scheduleAutosave);
+  }
+
+  @override
+  void dispose() {
+    _autosaveTimer?.cancel();
+    _observedEditor?.removeListener(_scheduleAutosave);
+    super.dispose();
+  }
+
+  void _scheduleAutosave() {
+    _autosaveTimer?.cancel();
+    final EditorController? editor = _observedEditor;
+    if (!mounted ||
+        editor == null ||
+        !editor.isDirty ||
+        editor.projectPath == null) {
+      return;
+    }
+    final int revision = editor.documentRevision;
+    _autosaveTimer = Timer(const Duration(seconds: 2), () {
+      unawaited(_writeAutosave(editor, revision));
+    });
+  }
+
+  Future<void> _writeAutosave(EditorController editor, int revision) async {
+    if (!mounted ||
+        !editor.isDirty ||
+        editor.documentRevision != revision ||
+        editor.projectPath == null ||
+        _autosaveInFlight != null) {
+      return;
+    }
+    final String autosavePath = '${editor.projectPath}.autosave';
+    final Future<void> write = context
+        .read<ProjectStore>()
+        .saveProjectWithDocument(editor.document, autosavePath)
+        .then<void>((StoredProject _) {});
+    _autosaveInFlight = write;
+    try {
+      await write;
+    } catch (error) {
+      _showMessage('Autosave could not be written: $error', isError: true);
+    } finally {
+      if (identical(_autosaveInFlight, write)) _autosaveInFlight = null;
+      if (mounted && editor.documentRevision != revision) _scheduleAutosave();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final EditorController editor = context.watch<EditorController>();
     final Size viewport = MediaQuery.sizeOf(context);
-    final double paletteWidth = (viewport.width * .24).clamp(300, 390);
-    final double inspectorWidth = (viewport.width * .22).clamp(300, 360);
+    final double paletteWidth =
+        (viewport.width * .24).clamp(220, 360).toDouble();
+    final double inspectorWidth =
+        (viewport.width * .22).clamp(220, 360).toDouble();
     return Scaffold(
       body: SafeArea(
         child: Column(
@@ -72,26 +137,28 @@ class _EditorScreenState extends State<EditorScreen> {
             Expanded(
               child: Row(
                 children: <Widget>[
-                  SizedBox(
-                    width: paletteWidth,
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(12, 14, 10, 14),
-                      child: WidgetTreePanel(
-                        root: editor.activeRoot,
-                        selectedNodeId: editor.selectedNodeId,
-                        onSelect: editor.selectNode,
-                        onAddObject: editor.addObject,
-                        onDrop: _handleDrop,
-                        componentGroups: editor.document.componentGroups,
-                        onAddGroup:
-                            (BuilderComponentGroup group) => editor.addObject(
-                              'componentGroup',
-                              groupId: group.id,
-                            ),
+                  if (_showPalette) ...<Widget>[
+                    SizedBox(
+                      width: paletteWidth,
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(12, 14, 10, 14),
+                        child: WidgetTreePanel(
+                          root: editor.activeRoot,
+                          selectedNodeId: editor.selectedNodeId,
+                          onSelect: editor.selectNode,
+                          onAddObject: editor.addObject,
+                          onDrop: _handleDrop,
+                          componentGroups: editor.document.componentGroups,
+                          onAddGroup:
+                              (BuilderComponentGroup group) => editor.addObject(
+                                'componentGroup',
+                                groupId: group.id,
+                              ),
+                        ),
                       ),
                     ),
-                  ),
-                  const VerticalDivider(width: 1, thickness: 1),
+                    const VerticalDivider(width: 1, thickness: 1),
+                  ],
                   Expanded(
                     child: ColoredBox(
                       color: EditorPalette.surfaceInset(context),
@@ -107,21 +174,60 @@ class _EditorScreenState extends State<EditorScreen> {
                                   color: EditorPalette.mutedText(context),
                                 ),
                                 const SizedBox(width: 7),
-                                Text(
-                                  'Select a widget on the canvas to edit it',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: EditorPalette.mutedText(context),
+                                if (viewport.width > 850)
+                                  Text(
+                                    'Select a widget on the canvas to edit it',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: EditorPalette.mutedText(context),
+                                    ),
                                   ),
-                                ),
                                 const Spacer(),
-                                Text(
-                                  '${_previewSize.width.round()} × ${_previewSize.height.round()}',
-                                  style: TextStyle(
-                                    fontSize: 10,
-                                    color: EditorPalette.mutedText(context),
+                                IconButton(
+                                  tooltip:
+                                      _showPalette
+                                          ? 'Hide component panel'
+                                          : 'Show component panel',
+                                  visualDensity: VisualDensity.compact,
+                                  onPressed: () => setState(
+                                    () => _showPalette = !_showPalette,
+                                  ),
+                                  icon: Icon(
+                                    Icons.widgets_outlined,
+                                    size: 17,
+                                    color:
+                                        _showPalette
+                                            ? EditorPalette.primary(context)
+                                            : EditorPalette.mutedText(context),
                                   ),
                                 ),
+                                IconButton(
+                                  tooltip:
+                                      _showInspector
+                                          ? 'Hide properties panel'
+                                          : 'Show properties panel',
+                                  visualDensity: VisualDensity.compact,
+                                  onPressed: () => setState(
+                                    () => _showInspector = !_showInspector,
+                                  ),
+                                  icon: Icon(
+                                    Icons.tune,
+                                    size: 17,
+                                    color:
+                                        _showInspector
+                                            ? EditorPalette.primary(context)
+                                            : EditorPalette.mutedText(context),
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                if (viewport.width > 800)
+                                  Text(
+                                    '${_previewSize.width.round()} × ${_previewSize.height.round()}',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: EditorPalette.mutedText(context),
+                                    ),
+                                  ),
                               ],
                             ),
                           ),
@@ -137,6 +243,7 @@ class _EditorScreenState extends State<EditorScreen> {
                               onNavigate: editor.navigateToRoute,
                               onRunActions: _runActions,
                               activePageId: editor.activePageId,
+                              projectPath: editor.projectPath,
                               variableValues: editor.appVariableValues,
                               widgetOverrides: editor.widgetOverrides,
                             ),
@@ -146,31 +253,34 @@ class _EditorScreenState extends State<EditorScreen> {
                       ),
                     ),
                   ),
-                  const VerticalDivider(width: 1, thickness: 1),
-                  SizedBox(
-                    width: inspectorWidth,
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(17, 19, 17, 17),
-                      child: InspectorPanel(
-                        node: editor.selectedNode,
-                        seedColor: editor.document.seedColor,
-                        appTheme: editor.document.appTheme,
-                        onSetProperty: editor.setProperty,
-                        onSetProperties: editor.setProperties,
-                        onSetSeedColor: editor.setSeedColor,
-                        onSetAppTheme: editor.setAppTheme,
-                        onDeleteNode: editor.deleteSelected,
-                        onCreateVariable: _createVariable,
-                        pages: editor.pages,
-                        variables: editor.document.variables,
-                        customFunctions: editor.document.customFunctions,
-                        databaseCollections:
-                            editor.document.databaseCollections,
-                        onSetCustomFunctions: editor.setCustomFunctions,
-                        onCreateComponentGroup: _createComponentGroup,
+                  if (_showInspector) ...<Widget>[
+                    const VerticalDivider(width: 1, thickness: 1),
+                    SizedBox(
+                      width: inspectorWidth,
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(10, 14, 10, 12),
+                        child: InspectorPanel(
+                          node: editor.selectedNode,
+                          seedColor: editor.document.seedColor,
+                          appTheme: editor.document.appTheme,
+                          onSetProperty: editor.setProperty,
+                          onSetProperties: editor.setProperties,
+                          onSetSeedColor: editor.setSeedColor,
+                          onSetAppTheme: editor.setAppTheme,
+                          onDeleteNode: editor.deleteSelected,
+                          onCreateVariable: _createVariable,
+                          pages: editor.pages,
+                          variables: editor.document.variables,
+                          customFunctions: editor.document.customFunctions,
+                          databaseCollections:
+                              editor.document.databaseCollections,
+                          onSetCustomFunctions: editor.setCustomFunctions,
+                          onCreateComponentGroup: _createComponentGroup,
+                          onPickImage: _pickImage,
+                        ),
                       ),
                     ),
-                  ),
+                  ],
                 ],
               ),
             ),
@@ -178,6 +288,7 @@ class _EditorScreenState extends State<EditorScreen> {
               document: editor.document,
               projectPath: editor.projectPath,
               isDirty: editor.isDirty,
+              activityMessage: _workingMessage,
             ),
           ],
         ),
@@ -337,19 +448,37 @@ class _EditorScreenState extends State<EditorScreen> {
       confirmButtonText: 'Open project',
     );
     if (file == null || !mounted) return;
-    setState(() => _working = true);
+    setState(() {
+      _working = true;
+      _workingMessage = 'Opening project…';
+    });
     try {
       final StoredProject result = await context
           .read<ProjectStore>()
           .openProject(file.path);
       if (mounted) {
-        context.read<EditorController>().open(result.document, result.path);
-        _showMessage('Opened ${_fileName(result.path)}');
+        context.read<EditorController>().open(
+          result.document,
+          result.path,
+          isDirty: result.recoveredFromBackup || result.recoveredFromAutosave,
+        );
+        _showMessage(
+          result.recoveredFromAutosave
+              ? 'Recovered newer edits for ${_fileName(result.path)}'
+              : result.recoveredFromBackup
+              ? 'Recovered ${_fileName(result.path)} from its backup'
+              : 'Opened ${_fileName(result.path)}',
+        );
       }
     } catch (error) {
       _showMessage('Could not open project: $error', isError: true);
     } finally {
-      if (mounted) setState(() => _working = false);
+      if (mounted) {
+        setState(() {
+          _working = false;
+          _workingMessage = null;
+        });
+      }
     }
   }
 
@@ -394,20 +523,67 @@ class _EditorScreenState extends State<EditorScreen> {
       );
       if (replace != true || !mounted) return;
     }
+    _autosaveTimer?.cancel();
     setState(() => _working = true);
+    final BuilderDocument snapshot = editor.document;
+    final int savedRevision = editor.documentRevision;
+    setState(() => _workingMessage = 'Saving project…');
     try {
-      final String savedPath = await context.read<ProjectStore>().saveProject(
-        editor.document,
-        savePath,
-      );
+      final StoredProject savedProject = await context
+          .read<ProjectStore>()
+          .saveProjectWithDocument(snapshot, savePath);
       if (mounted) {
-        editor.markSaved(savedPath);
-        _showMessage('Project saved locally');
+        editor.markSaved(
+          savedProject.path,
+          savedRevision: savedRevision,
+          savedDocument: savedProject.document,
+        );
+        _showMessage(
+          editor.isDirty
+              ? 'Saved. Newer edits still need saving.'
+              : 'Project saved locally',
+        );
+        if (!editor.isDirty) {
+          try {
+            final Future<void>? pendingAutosave = _autosaveInFlight;
+            if (pendingAutosave != null) await pendingAutosave;
+            if (!editor.isDirty && mounted) {
+              await context
+                  .read<ProjectStore>()
+                  .clearAutosave(savedProject.path);
+            }
+          } catch (error) {
+            _showMessage(
+              'Project saved, but its recovery copy could not be removed: $error',
+              isError: true,
+            );
+          }
+        }
       }
     } catch (error) {
       _showMessage('Could not save project: $error', isError: true);
     } finally {
-      if (mounted) setState(() => _working = false);
+      if (mounted) {
+        setState(() {
+          _working = false;
+          _workingMessage = null;
+        });
+      }
+    }
+  }
+
+  Future<void> _pickImage(BuilderNode node) async {
+    final XTypeGroup imageType = const XTypeGroup(
+      label: 'Images',
+      extensions: <String>['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'],
+      mimeTypes: <String>['image/png', 'image/jpeg', 'image/gif', 'image/webp'],
+    );
+    final XFile? file = await openFile(
+      acceptedTypeGroups: <XTypeGroup>[imageType],
+      confirmButtonText: 'Choose image',
+    );
+    if (file != null && mounted) {
+      context.read<EditorController>().setProperty(node.id, 'source', file.path);
     }
   }
 
@@ -422,19 +598,36 @@ class _EditorScreenState extends State<EditorScreen> {
               : File(editor.projectPath!).parent.path,
     );
     if (parentFolder == null || !mounted) return;
+    final BuilderDocument exportDocument = editor.document;
+    final String? projectPath = editor.projectPath;
     final String destination =
         '${Directory(parentFolder).absolute.path}${Platform.pathSeparator}'
         '${DartGenerator.packageNameFor(editor.document.name)}';
-    setState(() => _working = true);
+    setState(() {
+      _working = true;
+      _workingMessage = 'Starting Flutter export…';
+    });
     try {
       final String generatedPath = await context
           .read<FlutterProjectExporter>()
-          .export(editor.document, destination);
+          .export(
+            exportDocument,
+            destination,
+            projectPath: projectPath,
+            onOutput: (String line) {
+              if (mounted) setState(() => _workingMessage = line);
+            },
+          );
       _showMessage('Exported Flutter app to $generatedPath');
     } catch (error) {
       _showMessage('Could not export Flutter app: $error', isError: true);
     } finally {
-      if (mounted) setState(() => _working = false);
+      if (mounted) {
+        setState(() {
+          _working = false;
+          _workingMessage = null;
+        });
+      }
     }
   }
 
@@ -2214,11 +2407,13 @@ class _StatusBar extends StatelessWidget {
     required this.document,
     required this.projectPath,
     required this.isDirty,
+    this.activityMessage,
   });
 
   final BuilderDocument document;
   final String? projectPath;
   final bool isDirty;
+  final String? activityMessage;
 
   @override
   Widget build(BuildContext context) {
@@ -2244,6 +2439,26 @@ class _StatusBar extends StatelessWidget {
               color: EditorPalette.mutedText(context),
             ),
           ),
+          if (activityMessage != null) ...<Widget>[
+            const SizedBox(width: 14),
+            Icon(
+              Icons.sync,
+              size: 12,
+              color: EditorPalette.primary(context),
+            ),
+            const SizedBox(width: 5),
+            Flexible(
+              child: Text(
+                activityMessage!,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 10,
+                  color: EditorPalette.mutedText(context),
+                ),
+              ),
+            ),
+          ],
           const Spacer(),
           Flexible(
             child: Text(

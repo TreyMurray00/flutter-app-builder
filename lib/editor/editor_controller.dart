@@ -22,6 +22,7 @@ class EditorController extends ChangeNotifier {
   final Map<String, int> _nextDatabaseId = <String, int>{};
   String? _projectPath;
   int _documentSessionId = 0;
+  int _documentRevision = 0;
   String _selectedNodeId = 'text_1';
   String _activePageId = 'home';
   bool _isDirty = false;
@@ -33,6 +34,7 @@ class EditorController extends ChangeNotifier {
       _document.pageById(_activePageId)?.root ?? _document.root;
   String? get projectPath => _projectPath;
   int get documentSessionId => _documentSessionId;
+  int get documentRevision => _documentRevision;
   String get selectedNodeId => _selectedNodeId;
   bool get isDirty => _isDirty;
   bool get canUndo => _undoStack.isNotEmpty;
@@ -979,6 +981,7 @@ class EditorController extends ChangeNotifier {
     if (_undoStack.isEmpty) return;
     _redoStack.add(_document);
     _document = _undoStack.removeLast();
+    _documentRevision++;
     _isDirty = true;
     _synchronizeAppVariables();
     _resetPreviewDatabase();
@@ -990,6 +993,7 @@ class EditorController extends ChangeNotifier {
     if (_redoStack.isEmpty) return;
     _undoStack.add(_document);
     _document = _redoStack.removeLast();
+    _documentRevision++;
     _isDirty = true;
     _synchronizeAppVariables();
     _resetPreviewDatabase();
@@ -997,8 +1001,9 @@ class EditorController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void open(BuilderDocument document, String path) {
+  void open(BuilderDocument document, String path, {bool isDirty = false}) {
     _documentSessionId++;
+    _documentRevision++;
     _document = document;
     _projectPath = path;
     _previewPageStack.clear();
@@ -1006,7 +1011,7 @@ class EditorController extends ChangeNotifier {
     _selectedNodeId = activeRoot.id;
     _undoStack.clear();
     _redoStack.clear();
-    _isDirty = false;
+    _isDirty = isDirty;
     _appVariableValues.clear();
     _widgetOverrides.clear();
     _synchronizeAppVariables();
@@ -1016,6 +1021,7 @@ class EditorController extends ChangeNotifier {
 
   void createNew() {
     _documentSessionId++;
+    _documentRevision++;
     _document = BuilderDocument.sample();
     _projectPath = null;
     _previewPageStack.clear();
@@ -1031,9 +1037,16 @@ class EditorController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void markSaved(String path) {
+  void markSaved(
+    String path, {
+    required int savedRevision,
+    required BuilderDocument savedDocument,
+  }) {
     _projectPath = path;
-    _isDirty = false;
+    if (_documentRevision == savedRevision) {
+      _document = savedDocument;
+      _isDirty = false;
+    }
     notifyListeners();
   }
 
@@ -1042,6 +1055,7 @@ class EditorController extends ChangeNotifier {
     if (_undoStack.length > 100) _undoStack.removeAt(0);
     _redoStack.clear();
     _document = next;
+    _documentRevision++;
     _synchronizeAppVariables();
     if (resetDatabase) _resetPreviewDatabase();
     _isDirty = true;

@@ -29,6 +29,7 @@ class InspectorPanel extends StatefulWidget {
     this.databaseCollections = const <BuilderDatabaseCollection>[],
     this.onSetCustomFunctions,
     this.onCreateComponentGroup,
+    this.onPickImage,
     super.key,
   });
 
@@ -48,6 +49,7 @@ class InspectorPanel extends StatefulWidget {
   final List<BuilderDatabaseCollection> databaseCollections;
   final ValueChanged<List<BuilderCustomFunction>>? onSetCustomFunctions;
   final Future<void> Function(BuilderNode node)? onCreateComponentGroup;
+  final Future<void> Function(BuilderNode node)? onPickImage;
 
   @override
   State<InspectorPanel> createState() => _InspectorPanelState();
@@ -363,11 +365,19 @@ class _InspectorPanelState extends State<InspectorPanel> {
               style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
             ),
           ),
-          Text(
-            node.id,
-            style: TextStyle(
-              fontSize: 9,
-              color: EditorPalette.mutedText(context),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Tooltip(
+              message: node.id,
+              child: Text(
+                node.id,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 9,
+                  color: EditorPalette.mutedText(context),
+                ),
+              ),
             ),
           ),
         ],
@@ -390,23 +400,27 @@ class _InspectorPanelState extends State<InspectorPanel> {
       }
     }
 
-    add(
-      'Visibility',
-      'visible opacity conditional',
-      _visibilityProperties(node),
-      expanded: true,
-    );
-    add(
-      'Variable bindings',
-      'app state variable bind text label visibility opacity size',
-      _bindingsProperties(node),
-    );
-    add('Padding', 'top right bottom left spacing inset', <Widget>[
-      _spacingEditor(node, 'padding'),
-    ], expanded: node.type == 'container');
-    add('Margin', 'top right bottom left spacing outside', <Widget>[
-      _spacingEditor(node, 'margin'),
-    ], expanded: node.type == 'container');
+    final bool supportsNodeModifiers =
+        !<String>{'appBar', 'floatingActionButton'}.contains(node.type);
+    if (supportsNodeModifiers) {
+      add(
+        'Visibility',
+        'visible opacity conditional',
+        _visibilityProperties(node),
+        expanded: true,
+      );
+      add(
+        'Variable bindings',
+        'app state variable bind text label hint visibility opacity size',
+        _bindingsProperties(node),
+      );
+      add('Padding', 'top right bottom left spacing inset', <Widget>[
+        _spacingEditor(node, 'padding'),
+      ], expanded: node.type == 'container');
+      add('Margin', 'top right bottom left spacing outside', <Widget>[
+        _spacingEditor(node, 'margin'),
+      ], expanded: node.type == 'container');
+    }
     if (!<String>{
       'scaffold',
       'appBar',
@@ -437,28 +451,26 @@ class _InspectorPanelState extends State<InspectorPanel> {
         _containerStyleProperties(node),
       );
     }
-    if (<String>{'card', 'padding'}.contains(node.type)) {
+    if (node.type == 'card') {
       add(
         'Size',
         'width height dimensions',
         _sizeProperties(node),
         expanded: true,
       );
-      if (node.type == 'card') {
-        add(
-          'Decoration',
-          'radius corner fill background color elevation',
-          _cardProperties(node),
-        );
-      }
-      if (node.type == 'padding' && node.children.isNotEmpty) {
-        add(
-          'Children',
-          'nested child objects layout',
-          _childrenSummary(node),
-          expanded: true,
-        );
-      }
+      add(
+        'Decoration',
+        'radius corner fill background color elevation',
+        _cardProperties(node),
+      );
+    }
+    if (node.type == 'padding' && node.children.isNotEmpty) {
+      add(
+        'Children',
+        'nested child objects layout',
+        _childrenSummary(node),
+        expanded: true,
+      );
     }
     if (<String>{
       'stack',
@@ -663,12 +675,14 @@ class _InspectorPanelState extends State<InspectorPanel> {
     key: ValueKey<String>('inspector-${node.id}-$title'),
     initiallyExpanded: initiallyExpanded || _query.isNotEmpty,
     tilePadding: const EdgeInsets.symmetric(horizontal: 3),
-    childrenPadding: const EdgeInsets.fromLTRB(5, 0, 5, 12),
+    childrenPadding: const EdgeInsets.fromLTRB(3, 0, 3, 10),
     visualDensity: VisualDensity.compact,
     iconColor: EditorPalette.mutedText(context),
     collapsedIconColor: EditorPalette.mutedText(context),
     title: Text(
       title,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
       style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
     ),
     children: children,
@@ -709,30 +723,24 @@ class _InspectorPanelState extends State<InspectorPanel> {
 
   Widget _spacingEditor(BuilderNode node, String prefix) {
     final bool linked = _linkedSpacing[prefix] ?? true;
-    Widget sideField(String side) => SizedBox(
-      width: 68,
-      child: TextField(
-        key: ValueKey<String>('${node.id}-$prefix${_capitalized(side)}'),
-        controller: _controllerFor(
-          node,
-          '$prefix${_capitalized(side)}',
-          fallback: _spacingValue(node, prefix, side),
-        ),
-        keyboardType: const TextInputType.numberWithOptions(decimal: true),
-        textAlign: TextAlign.center,
-        style: const TextStyle(fontSize: 11),
-        decoration: _inputDecoration(hintText: _sideLabel(side)).copyWith(
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 5,
-            vertical: 8,
-          ),
-        ),
-        onChanged: (String text) {
-          final double? value = double.tryParse(text);
-          if (value == null || !value.isFinite) return;
-          _setSpacing(node, prefix, side, value.clamp(0, 1200));
-        },
+    Widget sideField(String side) => TextField(
+      key: ValueKey<String>('${node.id}-$prefix${_capitalized(side)}'),
+      controller: _controllerFor(
+        node,
+        '$prefix${_capitalized(side)}',
+        fallback: _spacingValue(node, prefix, side),
       ),
+      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+      textAlign: TextAlign.center,
+      style: const TextStyle(fontSize: 11),
+      decoration: _inputDecoration(hintText: _sideLabel(side)).copyWith(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 5, vertical: 8),
+      ),
+      onChanged: (String text) {
+        final double? value = double.tryParse(text);
+        if (value == null || !value.isFinite) return;
+        _setSpacing(node, prefix, side, value.clamp(0, 1200));
+      },
     );
 
     return Container(
@@ -744,12 +752,13 @@ class _InspectorPanelState extends State<InspectorPanel> {
       ),
       child: Column(
         children: <Widget>[
-          Center(child: sideField('top')),
+          Center(child: SizedBox(width: 68, child: sideField('top'))),
           const SizedBox(height: 6),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: <Widget>[
-              sideField('left'),
+              Expanded(child: sideField('left')),
+              const SizedBox(width: 6),
               IconButton(
                 tooltip:
                     linked ? 'Unlink spacing values' : 'Link spacing values',
@@ -770,11 +779,12 @@ class _InspectorPanelState extends State<InspectorPanel> {
                           : EditorPalette.mutedText(context),
                 ),
               ),
-              sideField('right'),
+              const SizedBox(width: 6),
+              Expanded(child: sideField('right')),
             ],
           ),
           const SizedBox(height: 6),
-          Center(child: sideField('bottom')),
+          Center(child: SizedBox(width: 68, child: sideField('bottom'))),
           const SizedBox(height: 5),
           Text(
             linked ? 'All sides linked' : 'Top · Right · Bottom · Left',
@@ -835,15 +845,9 @@ class _InspectorPanelState extends State<InspectorPanel> {
   ];
 
   List<Widget> _sizeModeProperties(BuilderNode node) => <Widget>[
-    Row(
-      children: <Widget>[
-        Expanded(child: _sizeModeDropdown(node, 'widthMode', 'Width behavior')),
-        const SizedBox(width: 8),
-        Expanded(
-          child: _sizeModeDropdown(node, 'heightMode', 'Height behavior'),
-        ),
-      ],
-    ),
+    _sizeModeDropdown(node, 'widthMode', 'Width'),
+    const SizedBox(height: 8),
+    _sizeModeDropdown(node, 'heightMode', 'Height'),
     const SizedBox(height: 6),
     Text(
       'Fill and fractional sizes use the available parent space.',
@@ -925,6 +929,7 @@ class _InspectorPanelState extends State<InspectorPanel> {
     DropdownButtonFormField<String>(
       key: ValueKey<String>('stack-fit-${node.id}'),
       initialValue: node.properties['fit'] == 'expand' ? 'expand' : 'loose',
+      isExpanded: true,
       decoration: _inputDecoration(),
       items: const <DropdownMenuItem<String>>[
         DropdownMenuItem(value: 'loose', child: Text('Loose')),
@@ -944,6 +949,7 @@ class _InspectorPanelState extends State<InspectorPanel> {
           node.properties['scrollDirection'] == 'horizontal'
               ? 'horizontal'
               : 'vertical',
+      isExpanded: true,
       decoration: _inputDecoration(),
       items: const <DropdownMenuItem<String>>[
         DropdownMenuItem(value: 'vertical', child: Text('Vertical')),
@@ -976,14 +982,32 @@ class _InspectorPanelState extends State<InspectorPanel> {
   ];
 
   List<Widget> _imageProperties(BuilderNode node) => <Widget>[
-    _fieldLabel('Local image path'),
+    _fieldLabel('Image file'),
     const SizedBox(height: 5),
-    _textField(node, 'source', hintText: r'C:\path\to\image.png'),
+    _textField(node, 'source', hintText: 'Image path or URL'),
+    const SizedBox(height: 6),
+    Align(
+      alignment: Alignment.centerLeft,
+      child: OutlinedButton.icon(
+        onPressed:
+            widget.onPickImage == null
+                ? null
+                : () => widget.onPickImage!(node),
+        icon: const Icon(Icons.folder_open_outlined, size: 15),
+        label: const Text('Choose image…'),
+        style: OutlinedButton.styleFrom(
+          visualDensity: VisualDensity.compact,
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          textStyle: const TextStyle(fontSize: 11),
+        ),
+      ),
+    ),
     const SizedBox(height: 10),
     _fieldLabel('Image fit'),
     DropdownButtonFormField<String>(
       key: ValueKey<String>('image-fit-${node.id}'),
       initialValue: _fitValue(node.properties['fit']),
+      isExpanded: true,
       decoration: _inputDecoration(),
       items: const <DropdownMenuItem<String>>[
         DropdownMenuItem(value: 'cover', child: Text('Cover')),
@@ -1006,6 +1030,7 @@ class _InspectorPanelState extends State<InspectorPanel> {
     DropdownButtonFormField<String>(
       key: ValueKey<String>('icon-name-${node.id}'),
       initialValue: _iconName(node.properties['iconName']),
+      isExpanded: true,
       decoration: _inputDecoration(),
       items: const <DropdownMenuItem<String>>[
         DropdownMenuItem(value: 'star', child: Text('Star')),
@@ -1191,6 +1216,7 @@ class _InspectorPanelState extends State<InspectorPanel> {
     DropdownButtonFormField<String>(
       key: ValueKey<String>('fab-icon-${node.id}'),
       initialValue: _iconName(node.properties['iconName']),
+      isExpanded: true,
       decoration: _inputDecoration(),
       items: const <DropdownMenuItem<String>>[
         DropdownMenuItem(value: 'add', child: Text('Add')),
@@ -1236,6 +1262,7 @@ class _InspectorPanelState extends State<InspectorPanel> {
       DropdownButtonFormField<String>(
         key: ValueKey<String>('${property}-${node.id}'),
         initialValue: _containerAlignment(node.properties[property]),
+        isExpanded: true,
         decoration: _inputDecoration(),
         items: const <DropdownMenuItem<String>>[
           DropdownMenuItem(value: 'topLeft', child: Text('Top left')),
@@ -1286,6 +1313,7 @@ class _InspectorPanelState extends State<InspectorPanel> {
     DropdownButtonFormField<String>(
       key: ValueKey<String>('alignment-${node.id}'),
       initialValue: _containerAlignment(node.properties['alignment']),
+      isExpanded: true,
       decoration: _inputDecoration(),
       items: const <DropdownMenuItem<String>>[
         DropdownMenuItem(value: 'topLeft', child: Text('Top left')),
@@ -1341,6 +1369,7 @@ class _InspectorPanelState extends State<InspectorPanel> {
     DropdownButtonFormField<double>(
       key: ValueKey<String>('fontSize-${node.id}'),
       initialValue: _fontSize(node),
+      isExpanded: true,
       decoration: _inputDecoration(),
       items: const <DropdownMenuItem<double>>[
         DropdownMenuItem<double>(value: 14, child: Text('14 px')),
@@ -1641,10 +1670,8 @@ class _InspectorPanelState extends State<InspectorPanel> {
   }
 
   List<Widget> _bindingsProperties(BuilderNode node) {
-    final Map<String, Object?> bindings = _bindingsFor(node);
-    final List<Widget> rows = <Widget>[];
     if (widget.variables.isEmpty) {
-      rows.addAll(<Widget>[
+      return <Widget>[
         Padding(
           padding: const EdgeInsets.only(bottom: 7),
           child: Text(
@@ -1667,9 +1694,10 @@ class _InspectorPanelState extends State<InspectorPanel> {
             ),
           ),
         ),
-        const SizedBox(height: 5),
-      ]);
+      ];
     }
+    final Map<String, Object?> bindings = _bindingsFor(node);
+    final List<Widget> rows = <Widget>[];
     if (node.type == 'text') {
       rows.add(_bindingDropdown(node, bindings, 'text', 'Text', 'text'));
     }
@@ -1689,12 +1717,12 @@ class _InspectorPanelState extends State<InspectorPanel> {
           'text',
         ),
       );
+      rows.add(
+        _bindingDropdown(node, bindings, 'hintText', 'Hint text', 'text'),
+      );
     }
     rows.add(_bindingDropdown(node, bindings, 'visible', 'Visible', 'boolean'));
     rows.add(_bindingDropdown(node, bindings, 'opacity', 'Opacity', 'number'));
-    if (rows.isEmpty) {
-      rows.add(const Text('No bindable properties for this widget.'));
-    }
     return rows;
   }
 
@@ -1862,6 +1890,7 @@ class _InspectorPanelState extends State<InspectorPanel> {
           DropdownButtonFormField<bool>(
             key: ValueKey<String>('action-bool-$actionId-${action['value']}'),
             initialValue: action['value'] == true,
+            isExpanded: true,
             decoration: _inputDecoration(labelText: 'New value'),
             items: const <DropdownMenuItem<bool>>[
               DropdownMenuItem<bool>(value: true, child: Text('True')),
@@ -1910,7 +1939,11 @@ class _InspectorPanelState extends State<InspectorPanel> {
       widget.pages.where((BuilderPage item) => item.id == pageId),
     );
     final List<BuilderNode> targets =
-        page?.root.depthFirst().toList() ?? <BuilderNode>[];
+        page?.root.depthFirst().where(
+          (BuilderNode item) =>
+              !<String>{'appBar', 'floatingActionButton'}.contains(item.type),
+        ).toList() ??
+        <BuilderNode>[];
     final String targetId = action['targetNodeId'] as String? ?? '';
     final BuilderNode? target = _firstOrNull<BuilderNode>(
       targets.where((BuilderNode item) => item.id == targetId),
@@ -1920,6 +1953,7 @@ class _InspectorPanelState extends State<InspectorPanel> {
       'opacity',
       if (target?.type == 'text') 'text',
       if (target?.type == 'textField') 'initialValue',
+      if (target?.type == 'textField') 'hintText',
       if (<String>{
         'button',
         'textField',
@@ -2017,6 +2051,7 @@ class _InspectorPanelState extends State<InspectorPanel> {
                       'opacity' => 'Opacity',
                       'text' => 'Text',
                       'initialValue' => 'Initial value',
+                      'hintText' => 'Hint text',
                       _ => 'Label',
                     }),
                   ),
@@ -2038,6 +2073,7 @@ class _InspectorPanelState extends State<InspectorPanel> {
             'action-target-bool-$actionId-${action['value']}',
           ),
           initialValue: action['value'] == true,
+          isExpanded: true,
           decoration: _inputDecoration(labelText: 'New value'),
           items: const <DropdownMenuItem<bool>>[
             DropdownMenuItem<bool>(value: true, child: Text('Visible')),
@@ -2067,6 +2103,8 @@ class _InspectorPanelState extends State<InspectorPanel> {
               ? 'Text value'
               : property == 'initialValue'
               ? 'Initial value'
+              : property == 'hintText'
+              ? 'Hint text'
               : 'Label value',
         ),
     ];
@@ -2111,6 +2149,8 @@ class _InspectorPanelState extends State<InspectorPanel> {
         'visible' => true,
         'opacity' => 1.0,
         'text' => target?.properties['text']?.toString() ?? '',
+        'initialValue' => target?.properties['initialValue']?.toString() ?? '',
+        'hintText' => target?.properties['hintText']?.toString() ?? '',
         'label' => target?.properties['label']?.toString() ?? '',
         _ => '',
       };
@@ -2909,6 +2949,7 @@ class _InspectorPanelState extends State<InspectorPanel> {
     return <Widget>[
       DropdownButtonFormField<String>(
         key: ValueKey<String>('http-method-$id-$method'),
+        isExpanded: true,
         initialValue: method,
         decoration: _inputDecoration(labelText: 'Method'),
         items: const <DropdownMenuItem<String>>[
@@ -3111,6 +3152,8 @@ class _InspectorPanelState extends State<InspectorPanel> {
               Expanded(
                 child: Text(
                   _actionName(type),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     color: EditorPalette.text(context),
                     fontSize: 11,
@@ -3396,6 +3439,7 @@ class _InspectorPanelState extends State<InspectorPanel> {
     DropdownButtonFormField<String>(
       key: ValueKey<String>('mainAxis-${node.id}'),
       initialValue: _alignmentValue(node.properties['mainAxisAlignment']),
+      isExpanded: true,
       decoration: _inputDecoration(),
       items: const <DropdownMenuItem<String>>[
         DropdownMenuItem<String>(value: 'start', child: Text('Start')),
@@ -3418,6 +3462,7 @@ class _InspectorPanelState extends State<InspectorPanel> {
     DropdownButtonFormField<String>(
       key: ValueKey<String>('crossAxis-${node.id}'),
       initialValue: _crossAlignmentValue(node.properties['crossAxisAlignment']),
+      isExpanded: true,
       decoration: _inputDecoration(),
       items: const <DropdownMenuItem<String>>[
         DropdownMenuItem<String>(value: 'start', child: Text('Start')),
