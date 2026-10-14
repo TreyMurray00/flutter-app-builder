@@ -35,6 +35,8 @@ dart run bin/app_builder.dart export .\my_app.appbuilder.json --output .\my_app
 
 The CLI consumes the same project model and Dart generator as the editor. Export creates a new Flutter project directory using the locally installed Flutter SDK; the destination must not already exist. It scaffolds platform files with `flutter create --no-pub` and does not resolve packages.
 
+Exported apps use Flutter's official `material_ui` package and require Flutter 3.47 or later (Dart 3.13 or later).
+
 ## Prototype workflow
 
 1. Select a widget in the left tree or preview canvas to show its properties in the inspector.

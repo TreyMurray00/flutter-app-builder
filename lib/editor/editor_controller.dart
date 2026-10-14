@@ -848,6 +848,74 @@ class EditorController extends ChangeNotifier {
         'backgroundColor': 0xFF6750A4,
         'foregroundColor': 0xFFFFFFFF,
       },
+      'extendedFloatingActionButton' => <String, Object?>{
+        'label': 'Create',
+        'iconName': 'add',
+        'backgroundColor': 0xFF6750A4,
+        'foregroundColor': 0xFFFFFFFF,
+      },
+      'iconButton' => <String, Object?>{
+        'iconName': 'favorite',
+        'tooltip': 'Favorite',
+        'style': 'standard',
+      },
+      'segmentedButton' => <String, Object?>{
+        'options': 'Day,Week,Month',
+        'selectedIndex': 0,
+        'selectedOptions': 'Day',
+        'multiSelect': false,
+      },
+      'badge' => <String, Object?>{'label': '3', 'iconName': 'notifications'},
+      'linearProgressIndicator' => <String, Object?>{
+        'value': 0.65,
+        'minHeight': 4.0,
+      },
+      'snackBar' => <String, Object?>{
+        'message': 'File saved',
+        'actionLabel': 'Undo',
+      },
+      'alertDialog' => <String, Object?>{
+        'title': 'Confirm action',
+        'message': 'Are you sure you want to continue?',
+        'confirmLabel': 'Continue',
+        'cancelLabel': 'Cancel',
+      },
+      'bottomSheet' => <String, Object?>{
+        'title': 'More options',
+        'message': 'Supplementary content goes here.',
+      },
+      'listTile' => <String, Object?>{
+        'title': 'List item',
+        'subtitle': 'Supporting text',
+        'leadingIcon': 'person',
+        'trailingIcon': 'arrowForward',
+      },
+      'bottomAppBar' => <String, Object?>{'label': 'Bottom app bar'},
+      'navigationBar' => <String, Object?>{
+        'destinations': 'Home,Search,Settings',
+        'selectedIndex': 0,
+      },
+      'navigationDrawer' => <String, Object?>{
+        'destinations': 'Home,Search,Settings',
+        'selectedIndex': 0,
+      },
+      'navigationRail' => <String, Object?>{
+        'destinations': 'Home,Search,Settings',
+        'selectedIndex': 0,
+      },
+      'tabBar' => <String, Object?>{'tabs': 'Overview,Details,Reviews'},
+      'chip' => <String, Object?>{'label': 'Filter'},
+      'datePicker' => <String, Object?>{'label': 'Select date'},
+      'menu' => <String, Object?>{
+        'label': 'Open menu',
+        'options': 'Edit,Copy,Delete',
+      },
+      'radio' => <String, Object?>{
+        'options': 'Option one,Option two',
+        'selectedOption': 'Option one',
+      },
+      'slider' => <String, Object?>{'min': 0.0, 'max': 100.0, 'value': 50.0},
+      'timePicker' => <String, Object?>{'label': 'Select time'},
       'componentGroup' => <String, Object?>{
         'groupId': componentGroup!.id,
         'groupName': componentGroup.name,
@@ -858,7 +926,15 @@ class EditorController extends ChangeNotifier {
 
     BuilderNode? parent;
     if (targetId == null &&
-        (type == 'appBar' || type == 'floatingActionButton')) {
+        <String>{
+          'appBar',
+          'floatingActionButton',
+          'extendedFloatingActionButton',
+          'bottomAppBar',
+          'bottomSheet',
+          'navigationBar',
+          'navigationDrawer',
+        }.contains(type)) {
       parent = _firstScaffold() ?? _insertionParent();
     } else if (targetId == null) {
       parent = _insertionParent();

@@ -38,6 +38,7 @@ class CanvasPreview extends StatelessWidget {
     this.transformationController,
     this.viewportKey,
     this.panEnabled = false,
+    this.drawerEdgeSwipeEnabled = false,
     this.onInteractionEnd,
     super.key,
   });
@@ -56,6 +57,7 @@ class CanvasPreview extends StatelessWidget {
   final TransformationController? transformationController;
   final GlobalKey? viewportKey;
   final bool panEnabled;
+  final bool drawerEdgeSwipeEnabled;
   final VoidCallback? onInteractionEnd;
   final void Function(
     EditorDragData data,
@@ -154,9 +156,9 @@ class CanvasPreview extends StatelessWidget {
                               ],
                             ),
                             child: MediaQuery(
-                              data: MediaQuery.of(context).copyWith(
-                                size: Size(size.width, size.height),
-                              ),
+                              data: MediaQuery.of(
+                                context,
+                              ).copyWith(size: Size(size.width, size.height)),
                               child: KeyedSubtree(
                                 key: ValueKey<String>(
                                   'preview-page-$activePageId',
@@ -191,24 +193,59 @@ class CanvasPreview extends StatelessWidget {
     switch (node.type) {
       case 'scaffold':
         final BuilderNode? appBarNode = _firstChildOfType(node, 'appBar');
-        final BuilderNode? floatingButtonNode = _firstChildOfType(
+        final BuilderNode? floatingButtonNode =
+            _firstChildOfType(node, 'floatingActionButton') ??
+            _firstChildOfType(node, 'extendedFloatingActionButton');
+        final BuilderNode? bottomAppBarNode = _firstChildOfType(
           node,
-          'floatingActionButton',
+          'bottomAppBar',
         );
+        final BuilderNode? navigationBarNode = _firstChildOfType(
+          node,
+          'navigationBar',
+        );
+        final BuilderNode? bottomSheetNode = _firstChildOfType(
+          node,
+          'bottomSheet',
+        );
+        final BuilderNode? drawerNode = _firstChildOfType(
+          node,
+          'navigationDrawer',
+        );
+        final Set<String> scaffoldSlotIds = <String>{
+          if (appBarNode != null) appBarNode.id,
+          if (floatingButtonNode != null) floatingButtonNode.id,
+          if (bottomAppBarNode != null)
+            bottomAppBarNode.id
+          else if (navigationBarNode != null)
+            navigationBarNode.id,
+          if (bottomSheetNode != null) bottomSheetNode.id,
+          if (drawerNode != null) drawerNode.id,
+        };
         final List<BuilderNode> bodyNodes =
             node.children
                 .where(
-                  (BuilderNode child) =>
-                      child.type != 'appBar' &&
-                      child.type != 'floatingActionButton',
+                  (BuilderNode child) => !scaffoldSlotIds.contains(child.id),
                 )
                 .toList();
         content = Scaffold(
           appBar: appBarNode == null ? null : _renderAppBar(appBarNode),
+          // Alt temporarily enables native drawer gestures in the preview;
+          // otherwise they compete with palette drops and canvas interaction.
+          drawerEnableOpenDragGesture: drawerEdgeSwipeEnabled,
           floatingActionButton:
               floatingButtonNode == null
                   ? null
                   : _renderFloatingActionButton(floatingButtonNode),
+          bottomNavigationBar:
+              bottomAppBarNode != null
+                  ? _renderNode(bottomAppBarNode)
+                  : navigationBarNode == null
+                  ? null
+                  : _renderNode(navigationBarNode),
+          bottomSheet:
+              bottomSheetNode == null ? null : _renderNode(bottomSheetNode),
+          drawer: drawerNode == null ? null : _renderNode(drawerNode),
           body: _childrenWidget(bodyNodes),
         );
         break;
@@ -450,6 +487,10 @@ class CanvasPreview extends StatelessWidget {
                 ? () => onNavigate!(route)
                 : () => onSelect(node.id);
         content = switch (style) {
+          'elevated' => ElevatedButton(
+            onPressed: onPressed,
+            child: Text(label),
+          ),
           'outlined' => OutlinedButton(
             onPressed: onPressed,
             child: Text(label),
@@ -457,6 +498,374 @@ class CanvasPreview extends StatelessWidget {
           'text' => TextButton(onPressed: onPressed, child: Text(label)),
           _ => FilledButton(onPressed: onPressed, child: Text(label)),
         };
+        break;
+      case 'extendedFloatingActionButton':
+        content = _renderFloatingActionButton(node);
+        break;
+      case 'iconButton':
+        final String tooltip = node.properties['tooltip'] as String? ?? '';
+        final Widget icon = Icon(_icon(node.properties['iconName']));
+        final VoidCallback onPressed = _onNodePressed(node);
+        content = switch (node.properties['style']) {
+          'filled' => IconButton.filled(
+            tooltip: tooltip,
+            icon: icon,
+            onPressed: onPressed,
+          ),
+          'filledTonal' => IconButton.filledTonal(
+            tooltip: tooltip,
+            icon: icon,
+            onPressed: onPressed,
+          ),
+          'outlined' => IconButton.outlined(
+            tooltip: tooltip,
+            icon: icon,
+            onPressed: onPressed,
+          ),
+          _ => IconButton(tooltip: tooltip, icon: icon, onPressed: onPressed),
+        };
+        break;
+      case 'segmentedButton':
+        final List<String> options = _commaSeparated(
+          node.properties['options'],
+          'Day,Week,Month',
+        );
+        final int selectedIndex =
+            _integer(
+              node.properties['selectedIndex'],
+              0,
+            ).clamp(0, options.length - 1).toInt();
+        final bool multiSelect = node.properties['multiSelect'] == true;
+        final List<String> selectedOptions =
+            _commaSeparated(
+              node.properties['selectedOptions'],
+              options[selectedIndex],
+            ).where(options.contains).toList();
+        content = SegmentedButton<String>(
+          segments: <ButtonSegment<String>>[
+            for (int index = 0; index < options.length; index++)
+              ButtonSegment<String>(
+                value: options[index],
+                label: Text(options[index]),
+              ),
+          ],
+          multiSelectionEnabled: multiSelect,
+          selected: <String>{
+            if (multiSelect)
+              ...(selectedOptions.isEmpty
+                  ? <String>[options[selectedIndex]]
+                  : selectedOptions)
+            else
+              options[selectedIndex],
+          },
+          onSelectionChanged: (_) => _onNodePressed(node)(),
+        );
+        break;
+      case 'badge':
+        content = Badge(
+          label: Text(node.properties['label'] as String? ?? '3'),
+          child:
+              node.children.isEmpty
+                  ? Icon(_icon(node.properties['iconName'] ?? 'notifications'))
+                  : _childrenWidget(node.children),
+        );
+        break;
+      case 'linearProgressIndicator':
+        content = SizedBox(
+          width: _number(node.properties['width'], 240, 20, 1200),
+          child: LinearProgressIndicator(
+            value: _number(node.properties['value'], 0.65, 0, 1),
+            minHeight: _number(node.properties['minHeight'], 4, 1, 100),
+          ),
+        );
+        break;
+      case 'snackBar':
+        final String actionLabel =
+            (node.properties['actionLabel'] as String? ?? '').trim();
+        content = SnackBar(
+          content: Text(node.properties['message'] as String? ?? 'Message'),
+          action:
+              actionLabel.isEmpty
+                  ? null
+                  : SnackBarAction(
+                    label: actionLabel,
+                    onPressed: _onNodePressed(node),
+                  ),
+        );
+        break;
+      case 'alertDialog':
+        final String cancelLabel =
+            (node.properties['cancelLabel'] as String? ?? '').trim();
+        content = AlertDialog(
+          title: Text(node.properties['title'] as String? ?? 'Dialog'),
+          content:
+              node.children.isEmpty
+                  ? Text(node.properties['message'] as String? ?? 'Message')
+                  : _childrenWidget(node.children),
+          actions: <Widget>[
+            if (cancelLabel.isNotEmpty)
+              TextButton(
+                onPressed: _onNodePressed(node),
+                child: Text(cancelLabel),
+              ),
+            FilledButton(
+              onPressed: _onNodePressed(node),
+              child: Text(node.properties['confirmLabel'] as String? ?? 'OK'),
+            ),
+          ],
+        );
+        break;
+      case 'bottomSheet':
+        content = BottomSheet(
+          onClosing: () {},
+          builder:
+              (BuildContext context) => Padding(
+                padding: const EdgeInsets.all(16),
+                child:
+                    node.children.isEmpty
+                        ? ListTile(
+                          title: Text(
+                            node.properties['title'] as String? ??
+                                'More options',
+                          ),
+                          subtitle: Text(
+                            node.properties['message'] as String? ?? '',
+                          ),
+                        )
+                        : _childrenWidget(node.children),
+              ),
+        );
+        break;
+      case 'listTile':
+        final String subtitle =
+            (node.properties['subtitle'] as String? ?? '').trim();
+        content = ListTile(
+          leading: Icon(_icon(node.properties['leadingIcon'])),
+          title: Text(node.properties['title'] as String? ?? 'List item'),
+          subtitle: subtitle.isEmpty ? null : Text(subtitle),
+          trailing: Icon(_icon(node.properties['trailingIcon'])),
+          onTap: _onNodePressed(node),
+        );
+        break;
+      case 'bottomAppBar':
+        content = BottomAppBar(
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: <Widget>[
+              Text(node.properties['label'] as String? ?? 'Bottom app bar'),
+              IconButton(
+                tooltip: 'Add',
+                icon: const Icon(Icons.add),
+                onPressed: _onNodePressed(node),
+              ),
+            ],
+          ),
+        );
+        break;
+      case 'navigationBar':
+        final List<String> destinations = _commaSeparated(
+          node.properties['destinations'],
+          'Home,Search,Settings',
+        );
+        final int selectedIndex =
+            _integer(
+              node.properties['selectedIndex'],
+              0,
+            ).clamp(0, destinations.length - 1).toInt();
+        content = NavigationBar(
+          selectedIndex: selectedIndex,
+          onDestinationSelected: (_) => _onNodePressed(node)(),
+          destinations: <NavigationDestination>[
+            for (final String label in destinations)
+              NavigationDestination(
+                icon: const Icon(Icons.circle_outlined),
+                selectedIcon: const Icon(Icons.circle),
+                label: label,
+              ),
+          ],
+        );
+        break;
+      case 'navigationDrawer':
+        final List<String> destinations = _commaSeparated(
+          node.properties['destinations'],
+          'Home,Search,Settings',
+        );
+        final int selectedIndex =
+            _integer(
+              node.properties['selectedIndex'],
+              0,
+            ).clamp(0, destinations.length - 1).toInt();
+        content = NavigationDrawer(
+          selectedIndex: selectedIndex,
+          onDestinationSelected: (_) => _onNodePressed(node)(),
+          children: <Widget>[
+            const Padding(
+              padding: EdgeInsets.fromLTRB(28, 16, 16, 10),
+              child: Text('Navigation'),
+            ),
+            for (final String label in destinations)
+              NavigationDrawerDestination(
+                icon: const Icon(Icons.circle_outlined),
+                selectedIcon: const Icon(Icons.circle),
+                label: Text(label),
+              ),
+          ],
+        );
+        break;
+      case 'navigationRail':
+        final List<String> destinations = _commaSeparated(
+          node.properties['destinations'],
+          'Home,Search,Settings',
+        );
+        final int selectedIndex =
+            _integer(
+              node.properties['selectedIndex'],
+              0,
+            ).clamp(0, destinations.length - 1).toInt();
+        content = NavigationRail(
+          selectedIndex: selectedIndex,
+          onDestinationSelected: (_) => _onNodePressed(node)(),
+          destinations: <NavigationRailDestination>[
+            for (final String label in destinations)
+              NavigationRailDestination(
+                icon: const Icon(Icons.circle_outlined),
+                selectedIcon: const Icon(Icons.circle),
+                label: Text(label),
+              ),
+          ],
+        );
+        break;
+      case 'tabBar':
+        final List<String> tabs = _commaSeparated(
+          node.properties['tabs'],
+          'Overview,Details,Reviews',
+        );
+        content = DefaultTabController(
+          length: tabs.length,
+          child: TabBar(
+            onTap: (_) => _onNodePressed(node)(),
+            tabs: <Widget>[for (final String tab in tabs) Tab(text: tab)],
+          ),
+        );
+        break;
+      case 'chip':
+        content = ActionChip(
+          label: Text(node.properties['label'] as String? ?? 'Chip'),
+          onPressed: _onNodePressed(node),
+        );
+        break;
+      case 'datePicker':
+        content = Builder(
+          builder:
+              (BuildContext context) => TextButton.icon(
+                onPressed: () async {
+                  final DateTime? value = await showDatePicker(
+                    context: context,
+                    initialDate: DateTime.now(),
+                    firstDate: DateTime(1900),
+                    lastDate: DateTime(2100),
+                  );
+                  if (value != null) _onNodePressed(node)();
+                },
+                icon: const Icon(Icons.calendar_month),
+                label: Text(
+                  node.properties['label'] as String? ?? 'Select date',
+                ),
+              ),
+        );
+        break;
+      case 'menu':
+        final List<String> options = _commaSeparated(
+          node.properties['options'],
+          'Edit,Copy,Delete',
+        );
+        content = MenuAnchor(
+          menuChildren: <Widget>[
+            for (final String option in options)
+              MenuItemButton(
+                onPressed: _onNodePressed(node),
+                child: Text(option),
+              ),
+          ],
+          builder:
+              (
+                BuildContext context,
+                MenuController controller,
+                Widget? child,
+              ) => FilledButton.tonal(
+                onPressed: () {
+                  if (controller.isOpen) {
+                    controller.close();
+                  } else {
+                    controller.open();
+                  }
+                },
+                child: Text(node.properties['label'] as String? ?? 'Open menu'),
+              ),
+        );
+        break;
+      case 'radio':
+        final List<String> options = _commaSeparated(
+          node.properties['options'],
+          'Option one,Option two',
+        );
+        final String selectedOption =
+            node.properties['selectedOption'] as String? ?? options.first;
+        content = RadioGroup<String>(
+          groupValue:
+              options.contains(selectedOption) ? selectedOption : options.first,
+          onChanged: (_) => _onNodePressed(node)(),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              for (final String option in options)
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    Radio<String>(value: option),
+                    Text(option),
+                  ],
+                ),
+            ],
+          ),
+        );
+        break;
+      case 'slider':
+        final double min = _number(node.properties['min'], 0, -100000, 99999);
+        final double max = _number(
+          node.properties['max'],
+          100,
+          min + 0.001,
+          100000,
+        );
+        content = SizedBox(
+          width: _number(node.properties['width'], 240, 80, 1200),
+          child: Slider(
+            min: min,
+            max: max,
+            value: _number(node.properties['value'], 50, min, max),
+            onChanged: (_) => _onNodePressed(node)(),
+          ),
+        );
+        break;
+      case 'timePicker':
+        content = Builder(
+          builder:
+              (BuildContext context) => TextButton.icon(
+                onPressed: () async {
+                  final TimeOfDay? value = await showTimePicker(
+                    context: context,
+                    initialTime: TimeOfDay.now(),
+                  );
+                  if (value != null) _onNodePressed(node)();
+                },
+                icon: const Icon(Icons.access_time),
+                label: Text(
+                  node.properties['label'] as String? ?? 'Select time',
+                ),
+              ),
+        );
         break;
       case 'image':
         final String source =
@@ -788,19 +1197,47 @@ class CanvasPreview extends StatelessWidget {
     ),
   );
 
-  Widget _renderFloatingActionButton(BuilderNode node) => FloatingActionButton(
-    onPressed:
-        BuilderAction.forNode(node).isNotEmpty && onRunActions != null
-            ? () => onRunActions!(node)
-            : () => onSelect(node.id),
-    backgroundColor: Color(
+  Widget _renderFloatingActionButton(BuilderNode node) {
+    final VoidCallback onPressed = _onNodePressed(node);
+    final Color backgroundColor = Color(
       _integer(node.properties['backgroundColor'], 0xFF6750A4),
-    ),
-    foregroundColor: Color(
+    );
+    final Color foregroundColor = Color(
       _integer(node.properties['foregroundColor'], 0xFFFFFFFF),
-    ),
-    child: Icon(_icon(node.properties['iconName'])),
-  );
+    );
+    if (node.type == 'extendedFloatingActionButton') {
+      return FloatingActionButton.extended(
+        onPressed: onPressed,
+        backgroundColor: backgroundColor,
+        foregroundColor: foregroundColor,
+        icon: Icon(_icon(node.properties['iconName'])),
+        label: Text(node.properties['label'] as String? ?? 'Create'),
+      );
+    }
+    return FloatingActionButton(
+      onPressed: onPressed,
+      backgroundColor: backgroundColor,
+      foregroundColor: foregroundColor,
+      child: Icon(_icon(node.properties['iconName'])),
+    );
+  }
+
+  VoidCallback _onNodePressed(BuilderNode node) =>
+      BuilderAction.forNode(node).isNotEmpty && onRunActions != null
+          ? () => onRunActions!(node)
+          : () => onSelect(node.id);
+
+  List<String> _commaSeparated(Object? value, String fallback) {
+    final String source =
+        value is String && value.trim().isNotEmpty ? value : fallback;
+    final List<String> items =
+        source
+            .split(',')
+            .map((String item) => item.trim())
+            .where((String item) => item.isNotEmpty)
+            .toList();
+    return items.isEmpty ? fallback.split(',') : items;
+  }
 
   Widget _imagePlaceholder() => DecoratedBox(
     decoration: BoxDecoration(
@@ -832,6 +1269,7 @@ class CanvasPreview extends StatelessWidget {
     'check' => Icons.check,
     'menu' => Icons.menu,
     'arrowForward' => Icons.arrow_forward,
+    'notifications' => Icons.notifications_outlined,
     _ => Icons.star,
   };
 

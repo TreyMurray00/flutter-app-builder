@@ -744,7 +744,10 @@ class BuilderNode {
       type == 'swipeableStack' ||
       type == 'card' ||
       type == 'padding' ||
-      type == 'componentGroup';
+      type == 'componentGroup' ||
+      type == 'badge' ||
+      type == 'alertDialog' ||
+      type == 'bottomSheet';
 
   bool canAcceptChildType(String childType) =>
       acceptsChildren &&
@@ -883,7 +886,8 @@ class BuilderNode {
     }
 
     final BuilderNode? targetParent = parentOfId(targetId);
-    if (targetParent == null || !targetParent.canAcceptChild(source)) return null;
+    if (targetParent == null || !targetParent.canAcceptChild(source))
+      return null;
     return withoutSource.updateById(targetParent.id, (BuilderNode parent) {
       final List<BuilderNode> children = List<BuilderNode>.of(parent.children);
       final int targetIndex = children.indexWhere(

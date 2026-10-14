@@ -51,7 +51,7 @@
       "properties": {
         "id": { "type": "string", "minLength": 1 },
         "type": {
-          "enum": ["scaffold", "column", "row", "expanded", "safeArea", "container", "stack", "listView", "gridView", "pageView", "swipeableStack", "card", "padding", "componentGroup", "text", "button", "image", "icon", "divider", "verticalDivider", "textField", "checkbox", "switch", "signature", "appBar", "floatingActionButton"]
+          "enum": ["scaffold", "column", "row", "expanded", "safeArea", "container", "stack", "listView", "gridView", "pageView", "swipeableStack", "card", "padding", "componentGroup", "text", "button", "image", "icon", "divider", "verticalDivider", "textField", "checkbox", "switch", "signature", "appBar", "floatingActionButton", "extendedFloatingActionButton", "iconButton", "segmentedButton", "badge", "linearProgressIndicator", "snackBar", "alertDialog", "bottomSheet", "listTile", "bottomAppBar", "navigationBar", "navigationDrawer", "navigationRail", "tabBar", "chip", "datePicker", "menu", "radio", "slider", "timePicker"]
         },
         "properties": { "type": "object", "additionalProperties": true },
         "children": { "type": "array", "items": { "$ref": "#/$defs/node" } }

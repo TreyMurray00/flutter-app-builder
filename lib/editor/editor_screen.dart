@@ -41,6 +41,7 @@ class _EditorScreenState extends State<EditorScreen> {
       TransformationController();
   final GlobalKey _previewViewportKey = GlobalKey();
   bool _isControlPressed = false;
+  bool _isAltPressed = false;
   bool _working = false;
   bool _showPalette = true;
   bool _showInspector = true;
@@ -61,8 +62,13 @@ class _EditorScreenState extends State<EditorScreen> {
 
   bool _handleKeyboardEvent(KeyEvent event) {
     final bool isControlPressed = HardwareKeyboard.instance.isControlPressed;
-    if (isControlPressed != _isControlPressed) {
-      setState(() => _isControlPressed = isControlPressed);
+    final bool isAltPressed = HardwareKeyboard.instance.isAltPressed;
+    if (isControlPressed != _isControlPressed ||
+        isAltPressed != _isAltPressed) {
+      setState(() {
+        _isControlPressed = isControlPressed;
+        _isAltPressed = isAltPressed;
+      });
     }
     return false;
   }
@@ -412,6 +418,7 @@ class _EditorScreenState extends State<EditorScreen> {
                               transformationController:
                                   _previewTransformationController,
                               viewportKey: _previewViewportKey,
+                              drawerEdgeSwipeEnabled: _isAltPressed,
                               panEnabled:
                                   _isControlPressed &&
                                   _previewZoomPercent > 100,

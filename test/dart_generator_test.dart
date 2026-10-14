@@ -64,7 +64,7 @@ void main() {
   test('generates a standalone Flutter application from the design', () {
     final String source = DartGenerator().generate(BuilderDocument.sample());
 
-    expect(source, contains("import 'package:flutter/material.dart';"));
+    expect(source, contains("import 'package:material_ui/material_ui.dart';"));
     expect(source, contains('class GeneratedApp extends StatefulWidget'));
     expect(source, contains("title: \"My First App\""));
     expect(source, contains('Color(0xff6750a4)'));

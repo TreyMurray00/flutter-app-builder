@@ -34,7 +34,9 @@ The design file is JSON with a `schemaVersion`, app `name`, `theme`, a home `roo
 }
 ```
 
-Widget types supported by the generator are `scaffold`, `safeArea`, `column`, `row`, `expanded`, `container`, `stack`, `listView`, `gridView`, `pageView`, `swipeableStack`, `card`, `padding`, `componentGroup`, `text`, `button`, `image`, `icon`, `divider`, `verticalDivider`, `textField`, `checkbox`, `switch`, `signature`, `appBar`, and `floatingActionButton`. `Expanded` must be placed directly under a `Row` or `Column`. Properties are JSON values; the generator reads the same property names used by the visual inspector. Unknown or malformed widget configurations are reported by `validate` when they prevent code generation.
+Widget types supported by the generator are `scaffold`, `safeArea`, `column`, `row`, `expanded`, `container`, `stack`, `listView`, `gridView`, `pageView`, `swipeableStack`, `card`, `padding`, `componentGroup`, `text`, `button`, `image`, `icon`, `divider`, `verticalDivider`, `textField`, `checkbox`, `switch`, `signature`, `appBar`, `floatingActionButton`, `extendedFloatingActionButton`, `iconButton`, `segmentedButton`, `badge`, `linearProgressIndicator`, `snackBar`, `alertDialog`, `bottomSheet`, `listTile`, `bottomAppBar`, `navigationBar`, `navigationDrawer`, `navigationRail`, `tabBar`, `chip`, `datePicker`, `menu`, `radio`, `slider`, and `timePicker`. `Expanded` must be placed directly under a `Row` or `Column`. Properties are JSON values; the generator reads the same property names used by the visual inspector. Unknown or malformed widget configurations are reported by `validate` when they prevent code generation.
+
+Exported apps use Flutter's official `material_ui` package and require Flutter 3.47 or later (Dart 3.13 or later). The builder editor itself retains its existing SDK requirements.
 
 The home page lives in the top-level `root`. Additional pages use `{ "id", "name", "route", "root" }` entries in `pages`. The home page ID is `home`. Routes must be unique. Node IDs should be unique on a page; actions use IDs to address variables, pages, widgets, functions, and database collections.
 

@@ -401,9 +401,11 @@ class _InspectorPanelState extends State<InspectorPanel> {
     }
 
     final bool supportsNodeModifiers =
-        !<String>{'appBar', 'floatingActionButton', 'expanded'}.contains(
-          node.type,
-        );
+        !<String>{
+          'appBar',
+          'floatingActionButton',
+          'expanded',
+        }.contains(node.type);
     if (supportsNodeModifiers) {
       add(
         'Visibility',
@@ -644,6 +646,66 @@ class _InspectorPanelState extends State<InspectorPanel> {
         _actionsProperties(node),
         expanded: true,
       );
+    }
+    if (const <String>{
+      'extendedFloatingActionButton',
+      'iconButton',
+      'segmentedButton',
+      'badge',
+      'linearProgressIndicator',
+      'snackBar',
+      'alertDialog',
+      'bottomSheet',
+      'listTile',
+      'bottomAppBar',
+      'navigationBar',
+      'navigationDrawer',
+      'navigationRail',
+      'tabBar',
+      'chip',
+      'datePicker',
+      'menu',
+      'radio',
+      'slider',
+      'timePicker',
+    }.contains(node.type)) {
+      final List<Widget> componentProperties = _materialComponentProperties(
+        node,
+      );
+      if (componentProperties.isNotEmpty) {
+        add(
+          'Component',
+          'material widget content label title value options tabs destinations icon progress size button navigation badge snackbar dialog date time radio slider',
+          componentProperties,
+          expanded: true,
+        );
+      }
+      if (<String>{
+        'extendedFloatingActionButton',
+        'iconButton',
+        'segmentedButton',
+        'snackBar',
+        'alertDialog',
+        'listTile',
+        'bottomAppBar',
+        'chip',
+        'datePicker',
+        'menu',
+        'timePicker',
+        'navigationBar',
+        'navigationDrawer',
+        'navigationRail',
+        'tabBar',
+        'radio',
+        'slider',
+      }.contains(node.type)) {
+        add(
+          'Actions',
+          'on tap navigate snackbar alert dialog back',
+          _actionsProperties(node),
+          expanded: true,
+        );
+      }
     }
     if (node.type == 'column' || node.type == 'row') {
       add(
@@ -1050,9 +1112,7 @@ class _InspectorPanelState extends State<InspectorPanel> {
       alignment: Alignment.centerLeft,
       child: OutlinedButton.icon(
         onPressed:
-            widget.onPickImage == null
-                ? null
-                : () => widget.onPickImage!(node),
+            widget.onPickImage == null ? null : () => widget.onPickImage!(node),
         icon: const Icon(Icons.folder_open_outlined, size: 15),
         label: const Text('Choose image…'),
         style: OutlinedButton.styleFrom(
@@ -1197,6 +1257,162 @@ class _InspectorPanelState extends State<InspectorPanel> {
           ),
     ),
   ];
+
+  List<Widget> _materialComponentProperties(BuilderNode node) {
+    final List<Widget> controls = <Widget>[];
+    for (final MapEntry<String, Object?> entry in node.properties.entries) {
+      final String property = entry.key;
+      final Object? value = entry.value;
+      if (property.endsWith('Color') && value is int) {
+        controls.addAll(<Widget>[
+          _fieldLabel(_componentPropertyLabel(property)),
+          const SizedBox(height: 6),
+          ColorPickerField(
+            color: Color(value),
+            onChanged:
+                (Color color) =>
+                    widget.onSetProperty(node.id, property, color.toARGB32()),
+          ),
+          const SizedBox(height: 10),
+        ]);
+      } else if (node.type == 'iconButton' && property == 'style') {
+        controls.addAll(<Widget>[
+          _fieldLabel('Style'),
+          const SizedBox(height: 5),
+          DropdownButtonFormField<String>(
+            key: ValueKey<String>('${node.id}-icon-button-style'),
+            initialValue: _iconButtonStyle(value),
+            isExpanded: true,
+            decoration: _inputDecoration(),
+            items: const <DropdownMenuItem<String>>[
+              DropdownMenuItem(value: 'standard', child: Text('Standard')),
+              DropdownMenuItem(value: 'filled', child: Text('Filled')),
+              DropdownMenuItem(
+                value: 'filledTonal',
+                child: Text('Filled tonal'),
+              ),
+              DropdownMenuItem(value: 'outlined', child: Text('Outlined')),
+            ],
+            onChanged: (String? next) {
+              if (next != null) widget.onSetProperty(node.id, property, next);
+            },
+          ),
+        ]);
+      } else if (value is bool) {
+        controls.add(
+          SwitchListTile.adaptive(
+            key: ValueKey<String>('${node.id}-$property'),
+            contentPadding: EdgeInsets.zero,
+            dense: true,
+            title: Text(
+              _componentPropertyLabel(property),
+              style: const TextStyle(fontSize: 11),
+            ),
+            value: value,
+            onChanged:
+                (bool next) => widget.onSetProperty(node.id, property, next),
+          ),
+        );
+      } else if (value is num) {
+        double minimum = 0;
+        double maximum = 1200;
+        if (node.type == 'slider') {
+          final double sliderMinimum =
+              node.properties['min'] is num
+                  ? (node.properties['min']! as num).toDouble()
+                  : 0;
+          final double sliderMaximum =
+              node.properties['max'] is num
+                  ? (node.properties['max']! as num).toDouble()
+                  : 100;
+          switch (property) {
+            case 'min':
+              minimum = -100000;
+              maximum = 99999;
+              break;
+            case 'max':
+              minimum = sliderMinimum + 0.001;
+              maximum = 100000;
+              break;
+            case 'value':
+              minimum = sliderMinimum;
+              maximum =
+                  sliderMaximum > sliderMinimum
+                      ? sliderMaximum
+                      : sliderMinimum + 0.001;
+              break;
+          }
+        } else if (property == 'value' &&
+            node.type == 'linearProgressIndicator') {
+          maximum = 1;
+        } else if (property == 'minHeight' &&
+            node.type == 'linearProgressIndicator') {
+          maximum = 100;
+        } else if (property == 'selectedIndex' &&
+            <String>{
+              'segmentedButton',
+              'navigationBar',
+              'navigationDrawer',
+              'navigationRail',
+            }.contains(node.type)) {
+          final String listProperty =
+              node.type == 'segmentedButton' ? 'options' : 'destinations';
+          maximum =
+              _commaSeparatedProperty(
+                node.properties[listProperty],
+              ).length.toDouble().clamp(1, 1000) -
+              1;
+        }
+        controls.add(
+          _numberField(
+            node,
+            property,
+            label: _componentPropertyLabel(property),
+            fallback: value.toDouble(),
+            min: minimum,
+            max: maximum,
+          ),
+        );
+      } else if (value is String) {
+        controls.addAll(<Widget>[
+          _fieldLabel(_componentPropertyLabel(property)),
+          const SizedBox(height: 5),
+          _textField(
+            node,
+            property,
+            hintText: _componentPropertyLabel(property),
+            minLines: property == 'message' || property == 'options' ? 2 : 1,
+            maxLines: property == 'message' || property == 'options' ? 3 : 1,
+          ),
+        ]);
+      }
+      controls.add(const SizedBox(height: 9));
+    }
+    if (controls.isNotEmpty) controls.removeLast();
+    return controls;
+  }
+
+  String _componentPropertyLabel(String property) => property
+      .replaceAllMapped(
+        RegExp(r'([a-z0-9])([A-Z])'),
+        (Match match) => '${match[1]} ${match[2]}',
+      )
+      .replaceAll('_', ' ')
+      .split(' ')
+      .map(
+        (String word) =>
+            word.isEmpty
+                ? word
+                : '${word[0].toUpperCase()}${word.substring(1)}',
+      )
+      .join(' ');
+
+  List<String> _commaSeparatedProperty(Object? value) =>
+      (value is String ? value : '')
+          .split(',')
+          .map((String item) => item.trim())
+          .where((String item) => item.isNotEmpty)
+          .toList();
 
   List<Widget> _textFieldProperties(BuilderNode node) => <Widget>[
     _fieldLabel('Initial value'),
@@ -1999,10 +2215,16 @@ class _InspectorPanelState extends State<InspectorPanel> {
       widget.pages.where((BuilderPage item) => item.id == pageId),
     );
     final List<BuilderNode> targets =
-        page?.root.depthFirst().where(
-          (BuilderNode item) =>
-              !<String>{'appBar', 'floatingActionButton'}.contains(item.type),
-        ).toList() ??
+        page?.root
+            .depthFirst()
+            .where(
+              (BuilderNode item) =>
+                  !<String>{
+                    'appBar',
+                    'floatingActionButton',
+                  }.contains(item.type),
+            )
+            .toList() ??
         <BuilderNode>[];
     final String targetId = action['targetNodeId'] as String? ?? '';
     final BuilderNode? target = _firstOrNull<BuilderNode>(
@@ -3472,6 +3694,7 @@ class _InspectorPanelState extends State<InspectorPanel> {
     SegmentedButton<String>(
       segments: const <ButtonSegment<String>>[
         ButtonSegment<String>(value: 'filled', label: Text('Filled')),
+        ButtonSegment<String>(value: 'elevated', label: Text('Elevated')),
         ButtonSegment<String>(value: 'outlined', label: Text('Outline')),
         ButtonSegment<String>(value: 'text', label: Text('Text')),
       ],
@@ -3557,12 +3780,20 @@ class _InspectorPanelState extends State<InspectorPanel> {
     String property, {
     required String label,
     required double fallback,
+    double min = 0,
+    double max = 1200,
   }) => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: <Widget>[
       _fieldLabel(label),
       const SizedBox(height: 5),
-      _compactNumberField(node, property, fallback: fallback),
+      _compactNumberField(
+        node,
+        property,
+        fallback: fallback,
+        min: min,
+        max: max,
+      ),
     ],
   );
 
@@ -3598,6 +3829,7 @@ class _InspectorPanelState extends State<InspectorPanel> {
     BuilderNode node,
     String property, {
     required double fallback,
+    double min = 0,
     double max = 1200,
   }) => TextField(
     key: ValueKey<String>('${node.id}-$property'),
@@ -3608,7 +3840,7 @@ class _InspectorPanelState extends State<InspectorPanel> {
     onChanged: (String value) {
       final double? parsed = double.tryParse(value);
       if (parsed != null && parsed.isFinite) {
-        widget.onSetProperty(node.id, property, parsed.clamp(0, max));
+        widget.onSetProperty(node.id, property, parsed.clamp(min, max));
       }
     },
     decoration: _inputDecoration(),
@@ -3684,8 +3916,15 @@ class _InspectorPanelState extends State<InspectorPanel> {
 
   String _buttonStyle(BuilderNode node) {
     final Object? style = node.properties['style'];
-    return style == 'outlined' || style == 'text' ? style! as String : 'filled';
+    return const <String>{'elevated', 'outlined', 'text'}.contains(style)
+        ? style! as String
+        : 'filled';
   }
+
+  String _iconButtonStyle(Object? value) =>
+      const <String>{'filled', 'filledTonal', 'outlined'}.contains(value)
+          ? value! as String
+          : 'standard';
 
   String _alignmentValue(Object? value) => switch (value) {
     'center' => 'center',
