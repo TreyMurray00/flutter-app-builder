@@ -5,6 +5,7 @@ import 'editor/editor_controller.dart';
 import 'editor/editor_screen.dart';
 import 'services/dart_generator.dart';
 import 'services/flutter_project_exporter.dart';
+import 'services/flutter_toolchain_service.dart';
 import 'services/project_store.dart';
 import 'theme_mode_controller.dart';
 
@@ -26,6 +27,9 @@ class LocalBuilderApp extends StatelessWidget {
           create: (_) => EditorController(),
         ),
         Provider<ProjectStore>(create: (_) => ProjectStore()),
+        Provider<FlutterToolchainService>(
+          create: (_) => FlutterToolchainService(),
+        ),
         Provider<DartGenerator>(create: (_) => DartGenerator()),
         Provider<FlutterProjectExporter>(
           create: (_) => FlutterProjectExporter(generator: DartGenerator()),

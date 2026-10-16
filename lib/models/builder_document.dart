@@ -1,6 +1,8 @@
 import 'dart:collection';
 
-const int currentSchemaVersion = 8;
+import 'builder_widget_definition.dart';
+
+const int currentSchemaVersion = 10;
 
 enum BuilderDropPosition { before, inside, after }
 
@@ -22,6 +24,9 @@ class BuilderDocument {
     this.appTheme = const BuilderTheme(),
     List<BuilderDatabaseCollection> databaseCollections =
         const <BuilderDatabaseCollection>[],
+    List<BuilderDatabaseRelationship> databaseRelationships =
+        const <BuilderDatabaseRelationship>[],
+    List<BuilderFontAsset> fontAssets = const <BuilderFontAsset>[],
     this.initialPageId = 'home',
     this.schemaVersion = currentSchemaVersion,
   }) : pages = List<BuilderPage>.unmodifiable(pages),
@@ -37,7 +42,12 @@ class BuilderDocument {
        ),
        databaseCollections = List<BuilderDatabaseCollection>.unmodifiable(
          databaseCollections,
-       );
+       ),
+       databaseRelationships =
+           List<BuilderDatabaseRelationship>.unmodifiable(
+             databaseRelationships,
+           ),
+       fontAssets = List<BuilderFontAsset>.unmodifiable(fontAssets);
 
   final String name;
   final int seedColor;
@@ -54,6 +64,8 @@ class BuilderDocument {
   final List<BuilderComponentGroup> componentGroups;
   final BuilderTheme appTheme;
   final List<BuilderDatabaseCollection> databaseCollections;
+  final List<BuilderDatabaseRelationship> databaseRelationships;
+  final List<BuilderFontAsset> fontAssets;
   final String initialPageId;
   final int schemaVersion;
 
@@ -121,6 +133,8 @@ class BuilderDocument {
     List<BuilderComponentGroup>? componentGroups,
     BuilderTheme? appTheme,
     List<BuilderDatabaseCollection>? databaseCollections,
+    List<BuilderDatabaseRelationship>? databaseRelationships,
+    List<BuilderFontAsset>? fontAssets,
     String? initialPageId,
     int? schemaVersion,
   }) {
@@ -137,6 +151,9 @@ class BuilderDocument {
       componentGroups: componentGroups ?? this.componentGroups,
       appTheme: appTheme ?? this.appTheme,
       databaseCollections: databaseCollections ?? this.databaseCollections,
+      databaseRelationships:
+          databaseRelationships ?? this.databaseRelationships,
+      fontAssets: fontAssets ?? this.fontAssets,
       initialPageId: initialPageId ?? this.initialPageId,
       schemaVersion: schemaVersion ?? this.schemaVersion,
     );
@@ -166,6 +183,13 @@ class BuilderDocument {
         databaseCollections
             .map((BuilderDatabaseCollection collection) => collection.toJson())
             .toList(),
+    'databaseRelationships':
+        databaseRelationships
+            .map((BuilderDatabaseRelationship relationship) =>
+                relationship.toJson())
+            .toList(),
+    'fontAssets':
+        fontAssets.map((BuilderFontAsset font) => font.toJson()).toList(),
     'initialPageId': initialPageId,
   };
 
@@ -199,6 +223,9 @@ class BuilderDocument {
         <BuilderComponentGroup>[];
     final List<BuilderDatabaseCollection> parsedDatabaseCollections =
         <BuilderDatabaseCollection>[];
+    final List<BuilderDatabaseRelationship> parsedDatabaseRelationships =
+        <BuilderDatabaseRelationship>[];
+    final List<BuilderFontAsset> parsedFontAssets = <BuilderFontAsset>[];
     BuilderNode homeRoot = BuilderNode.fromJson(
       Map<String, Object?>.from(rawRoot),
     );
@@ -289,6 +316,32 @@ class BuilderDocument {
         );
       }
     }
+    final Object? rawRelationships = json['databaseRelationships'];
+    if (rawRelationships is List) {
+      for (final Object? rawRelationship in rawRelationships) {
+        if (rawRelationship is! Map) {
+          throw const FormatException(
+            'Database relationships must be objects.',
+          );
+        }
+        parsedDatabaseRelationships.add(
+          BuilderDatabaseRelationship.fromJson(
+            Map<String, Object?>.from(rawRelationship),
+          ),
+        );
+      }
+    }
+    final Object? rawFonts = json['fontAssets'];
+    if (rawFonts is List) {
+      for (final Object? rawFont in rawFonts) {
+        if (rawFont is! Map) {
+          throw const FormatException('Font assets must be objects.');
+        }
+        parsedFontAssets.add(
+          BuilderFontAsset.fromJson(Map<String, Object?>.from(rawFont)),
+        );
+      }
+    }
 
     return BuilderDocument(
       // Schema 1 documents are accepted and upgraded when they are next saved.
@@ -306,6 +359,8 @@ class BuilderDocument {
       componentGroups: parsedComponentGroups,
       appTheme: BuilderTheme.fromJson(theme),
       databaseCollections: parsedDatabaseCollections,
+      databaseRelationships: parsedDatabaseRelationships,
+      fontAssets: parsedFontAssets,
       initialPageId:
           json['initialPageId'] is String &&
                   <String>{
@@ -379,12 +434,53 @@ class BuilderTheme {
   );
 }
 
+class BuilderFontAsset {
+  const BuilderFontAsset({
+    required this.id,
+    required this.family,
+    required this.source,
+    this.weight = 400,
+  });
+
+  final String id;
+  final String family;
+  final String source;
+  final int weight;
+
+  Map<String, Object?> toJson() => <String, Object?>{
+    'id': id,
+    'family': family,
+    'source': source,
+    'weight': weight,
+  };
+
+  factory BuilderFontAsset.fromJson(Map<String, Object?> json) {
+    if (json['id'] is! String ||
+        json['family'] is! String ||
+        json['source'] is! String) {
+      throw const FormatException(
+        'A font asset is missing its id, family, or source path.',
+      );
+    }
+    final int weight =
+        json['weight'] is num ? (json['weight']! as num).round() : 400;
+    return BuilderFontAsset(
+      id: json['id']! as String,
+      family: json['family']! as String,
+      source: json['source']! as String,
+      weight: weight.clamp(100, 900),
+    );
+  }
+}
+
 class BuilderDatabaseCollection {
   BuilderDatabaseCollection({
     required this.id,
     required this.name,
+    List<BuilderDatabaseField> fields = const <BuilderDatabaseField>[],
     List<Map<String, Object?>> seedRecords = const <Map<String, Object?>>[],
-  }) : seedRecords = List<Map<String, Object?>>.unmodifiable(
+  }) : fields = List<BuilderDatabaseField>.unmodifiable(fields),
+       seedRecords = List<Map<String, Object?>>.unmodifiable(
          seedRecords.map(
            (Map<String, Object?> record) =>
                Map<String, Object?>.unmodifiable(record),
@@ -393,20 +489,24 @@ class BuilderDatabaseCollection {
 
   final String id;
   final String name;
+  final List<BuilderDatabaseField> fields;
   final List<Map<String, Object?>> seedRecords;
 
   BuilderDatabaseCollection copyWith({
     String? name,
+    List<BuilderDatabaseField>? fields,
     List<Map<String, Object?>>? seedRecords,
   }) => BuilderDatabaseCollection(
     id: id,
     name: name ?? this.name,
+    fields: fields ?? this.fields,
     seedRecords: seedRecords ?? this.seedRecords,
   );
 
   Map<String, Object?> toJson() => <String, Object?>{
     'id': id,
     'name': name,
+    'fields': fields.map((BuilderDatabaseField field) => field.toJson()).toList(),
     'seedRecords': seedRecords,
   };
 
@@ -420,6 +520,21 @@ class BuilderDatabaseCollection {
     if (rawRecords != null && rawRecords is! List) {
       throw const FormatException('Seed records must be a list.');
     }
+    final Object? rawFields = json['fields'];
+    if (rawFields != null && rawFields is! List) {
+      throw const FormatException('Database fields must be a list.');
+    }
+    final List<BuilderDatabaseField> fields = <BuilderDatabaseField>[];
+    if (rawFields is List) {
+      for (final Object? rawField in rawFields) {
+        if (rawField is! Map) {
+          throw const FormatException('Each database field must be an object.');
+        }
+        fields.add(
+          BuilderDatabaseField.fromJson(Map<String, Object?>.from(rawField)),
+        );
+      }
+    }
     final List<Map<String, Object?>> records = <Map<String, Object?>>[];
     if (rawRecords is List) {
       for (final Object? record in rawRecords) {
@@ -432,7 +547,104 @@ class BuilderDatabaseCollection {
     return BuilderDatabaseCollection(
       id: json['id']! as String,
       name: json['name']! as String,
+      fields: fields,
       seedRecords: records,
+    );
+  }
+}
+
+class BuilderDatabaseField {
+  const BuilderDatabaseField({
+    required this.id,
+    required this.name,
+    this.type = 'string',
+    this.required = false,
+    this.primaryKey = false,
+    this.unique = false,
+  });
+
+  final String id;
+  final String name;
+  final String type;
+  final bool required;
+  final bool primaryKey;
+  final bool unique;
+
+  Map<String, Object?> toJson() => <String, Object?>{
+    'id': id,
+    'name': name,
+    'type': type,
+    'required': required,
+    'primaryKey': primaryKey,
+    'unique': unique,
+  };
+
+  factory BuilderDatabaseField.fromJson(Map<String, Object?> json) {
+    if (json['id'] is! String || json['name'] is! String) {
+      throw const FormatException('A database field needs an id and name.');
+    }
+    return BuilderDatabaseField(
+      id: json['id']! as String,
+      name: json['name']! as String,
+      type: json['type'] is String ? json['type']! as String : 'string',
+      required: json['required'] == true,
+      primaryKey: json['primaryKey'] == true,
+      unique: json['unique'] == true,
+    );
+  }
+}
+
+class BuilderDatabaseRelationship {
+  const BuilderDatabaseRelationship({
+    required this.id,
+    required this.name,
+    required this.fromCollectionId,
+    required this.fromFieldId,
+    required this.toCollectionId,
+    required this.toFieldId,
+  });
+
+  /// The collection holding the foreign key (the many side).
+  final String fromCollectionId;
+  final String fromFieldId;
+
+  /// The referenced collection and its primary or unique field (the one side).
+  final String toCollectionId;
+  final String toFieldId;
+  final String id;
+  final String name;
+
+  Map<String, Object?> toJson() => <String, Object?>{
+    'id': id,
+    'name': name,
+    'fromCollectionId': fromCollectionId,
+    'fromFieldId': fromFieldId,
+    'toCollectionId': toCollectionId,
+    'toFieldId': toFieldId,
+  };
+
+  factory BuilderDatabaseRelationship.fromJson(Map<String, Object?> json) {
+    for (final String key in <String>[
+      'id',
+      'name',
+      'fromCollectionId',
+      'fromFieldId',
+      'toCollectionId',
+      'toFieldId',
+    ]) {
+      if (json[key] is! String) {
+        throw const FormatException(
+          'A database relationship needs an id, name, and both field references.',
+        );
+      }
+    }
+    return BuilderDatabaseRelationship(
+      id: json['id']! as String,
+      name: json['name']! as String,
+      fromCollectionId: json['fromCollectionId']! as String,
+      fromFieldId: json['fromFieldId']! as String,
+      toCollectionId: json['toCollectionId']! as String,
+      toFieldId: json['toFieldId']! as String,
     );
   }
 }
@@ -731,27 +943,10 @@ class BuilderNode {
   final List<BuilderNode> children;
 
   bool get acceptsChildren =>
-      type == 'scaffold' ||
-      type == 'column' ||
-      type == 'row' ||
-      type == 'expanded' ||
-      type == 'container' ||
-      type == 'safeArea' ||
-      type == 'stack' ||
-      type == 'listView' ||
-      type == 'gridView' ||
-      type == 'pageView' ||
-      type == 'swipeableStack' ||
-      type == 'card' ||
-      type == 'padding' ||
-      type == 'componentGroup' ||
-      type == 'badge' ||
-      type == 'alertDialog' ||
-      type == 'bottomSheet';
+      builderWidgetDefinitionFor(type)?.acceptsChildren ?? false;
 
   bool canAcceptChildType(String childType) =>
-      acceptsChildren &&
-      (childType != 'expanded' || type == 'row' || type == 'column');
+      builderWidgetAcceptsChild(type, childType);
 
   bool canAcceptChild(BuilderNode child) => canAcceptChildType(child.type);
 

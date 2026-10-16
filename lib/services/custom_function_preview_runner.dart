@@ -6,6 +6,7 @@ import 'package:dart_eval/dart_eval.dart';
 import 'package:flutter/foundation.dart';
 
 import '../models/builder_document.dart';
+import 'custom_function_source.dart';
 
 class CustomFunctionPreviewResult {
   const CustomFunctionPreviewResult({
@@ -179,7 +180,7 @@ class CustomFunctionPreviewRunner {
       ..writeln()
       ..writeln('  Future<void> _runCustomFunctionBody() async {');
     source
-      ..write(_indentBody(body))
+      ..write(_indentBody(CustomFunctionSource.parse(body).body))
       ..writeln('  }')
       ..writeln()
       ..writeln('  await _runCustomFunctionBody();')

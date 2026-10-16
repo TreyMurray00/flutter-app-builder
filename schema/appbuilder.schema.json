@@ -6,7 +6,7 @@
   "type": "object",
   "required": ["schemaVersion", "name", "theme", "root"],
   "properties": {
-    "schemaVersion": { "type": "integer", "minimum": 1, "maximum": 8 },
+    "schemaVersion": { "type": "integer", "minimum": 1, "maximum": 10 },
     "name": { "type": "string", "minLength": 1 },
     "theme": {
       "type": "object",
@@ -41,6 +41,8 @@
     "customDataStructures": { "type": "array", "items": { "$ref": "#/$defs/dataStructure" } },
     "componentGroups": { "type": "array", "items": { "$ref": "#/$defs/componentGroup" } },
     "databaseCollections": { "type": "array", "items": { "$ref": "#/$defs/databaseCollection" } },
+    "databaseRelationships": { "type": "array", "items": { "$ref": "#/$defs/databaseRelationship" } },
+    "fontAssets": { "type": "array", "items": { "$ref": "#/$defs/fontAsset" } },
     "initialPageId": { "type": "string" }
   },
   "additionalProperties": true,
@@ -51,7 +53,7 @@
       "properties": {
         "id": { "type": "string", "minLength": 1 },
         "type": {
-          "enum": ["scaffold", "column", "row", "expanded", "safeArea", "container", "stack", "listView", "gridView", "pageView", "swipeableStack", "card", "padding", "componentGroup", "text", "button", "image", "icon", "divider", "verticalDivider", "textField", "checkbox", "switch", "signature", "appBar", "floatingActionButton", "extendedFloatingActionButton", "iconButton", "segmentedButton", "badge", "linearProgressIndicator", "snackBar", "alertDialog", "bottomSheet", "listTile", "bottomAppBar", "navigationBar", "navigationDrawer", "navigationRail", "tabBar", "chip", "datePicker", "menu", "radio", "slider", "timePicker"]
+          "enum": ["scaffold", "column", "row", "expanded", "flexible", "spacer", "safeArea", "container", "stack", "listView", "databaseList", "singleChildScrollView", "gridView", "pageView", "swipeableStack", "card", "padding", "center", "align", "wrap", "sizedBox", "aspectRatio", "clipRRect", "componentGroup", "text", "button", "image", "icon", "divider", "verticalDivider", "textField", "checkbox", "switch", "signature", "appBar", "floatingActionButton", "extendedFloatingActionButton", "iconButton", "segmentedButton", "badge", "linearProgressIndicator", "snackBar", "alertDialog", "bottomSheet", "listTile", "bottomAppBar", "navigationBar", "navigationDrawer", "navigationRail", "tabBar", "chip", "datePicker", "menu", "radio", "slider", "timePicker"]
         },
         "properties": { "type": "object", "additionalProperties": true },
         "children": { "type": "array", "items": { "$ref": "#/$defs/node" } }
@@ -106,7 +108,45 @@
       "properties": {
         "id": { "type": "string", "minLength": 1 },
         "name": { "type": "string", "minLength": 1 },
+        "fields": { "type": "array", "items": { "$ref": "#/$defs/databaseField" } },
         "seedRecords": { "type": "array", "items": { "type": "object" } }
+      },
+      "additionalProperties": true
+    },
+    "databaseField": {
+      "type": "object",
+      "required": ["id", "name"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "type": { "enum": ["string", "integer", "number", "boolean", "date", "json"] },
+        "required": { "type": "boolean" },
+        "primaryKey": { "type": "boolean" },
+        "unique": { "type": "boolean" }
+      },
+      "additionalProperties": true
+    },
+    "databaseRelationship": {
+      "type": "object",
+      "required": ["id", "name", "fromCollectionId", "fromFieldId", "toCollectionId", "toFieldId"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "fromCollectionId": { "type": "string", "minLength": 1 },
+        "fromFieldId": { "type": "string", "minLength": 1 },
+        "toCollectionId": { "type": "string", "minLength": 1 },
+        "toFieldId": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": true
+    },
+    "fontAsset": {
+      "type": "object",
+      "required": ["id", "family", "source"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "family": { "type": "string", "minLength": 1 },
+        "source": { "type": "string", "minLength": 1 },
+        "weight": { "type": "integer", "minimum": 100, "maximum": 900 }
       },
       "additionalProperties": true
     }

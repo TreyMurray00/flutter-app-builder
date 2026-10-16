@@ -9,6 +9,9 @@ import 'package:highlight/languages/dart.dart' as dart_language;
 
 import '../models/builder_action.dart';
 import '../models/builder_document.dart';
+import '../models/builder_widget_definition.dart';
+import '../services/database_query_support.dart';
+import '../services/custom_function_source.dart';
 import 'color_picker_dialog.dart';
 import 'editor_palette.dart';
 
@@ -27,9 +30,13 @@ class InspectorPanel extends StatefulWidget {
     this.variables = const <BuilderVariable>[],
     this.customFunctions = const <BuilderCustomFunction>[],
     this.databaseCollections = const <BuilderDatabaseCollection>[],
+    this.databaseRelationships = const <BuilderDatabaseRelationship>[],
     this.onSetCustomFunctions,
     this.onCreateComponentGroup,
     this.onPickImage,
+    this.fontAssets = const <BuilderFontAsset>[],
+    this.onImportFont,
+    this.onRemoveFontAsset,
     super.key,
   });
 
@@ -47,9 +54,13 @@ class InspectorPanel extends StatefulWidget {
   final List<BuilderVariable> variables;
   final List<BuilderCustomFunction> customFunctions;
   final List<BuilderDatabaseCollection> databaseCollections;
+  final List<BuilderDatabaseRelationship> databaseRelationships;
   final ValueChanged<List<BuilderCustomFunction>>? onSetCustomFunctions;
   final Future<void> Function(BuilderNode node)? onCreateComponentGroup;
   final Future<void> Function(BuilderNode node)? onPickImage;
+  final List<BuilderFontAsset> fontAssets;
+  final Future<BuilderFontAsset?> Function()? onImportFont;
+  final ValueChanged<String>? onRemoveFontAsset;
 
   @override
   State<InspectorPanel> createState() => _InspectorPanelState();
@@ -228,19 +239,86 @@ class _InspectorPanelState extends State<InspectorPanel> {
                   },
                 ),
                 const SizedBox(height: 10),
-                TextFormField(
+                DropdownButtonFormField<String>(
                   key: ValueKey<String>(
                     'theme-font-${widget.appTheme.fontFamily}',
                   ),
                   initialValue: widget.appTheme.fontFamily,
-                  decoration: _inputDecoration(
-                    labelText: 'Font family',
-                    hintText: 'System default',
-                  ),
-                  onFieldSubmitted:
-                      (String value) => widget.onSetAppTheme(
-                        widget.appTheme.copyWith(fontFamily: value.trim()),
+                  isExpanded: true,
+                  decoration: _inputDecoration(labelText: 'Font family'),
+                  items: <DropdownMenuItem<String>>[
+                    const DropdownMenuItem<String>(
+                      value: '',
+                      child: Text('System default'),
+                    ),
+                    ...<String>{
+                      if (widget.appTheme.fontFamily.isNotEmpty)
+                        widget.appTheme.fontFamily,
+                      ...widget.fontAssets.map(
+                        (BuilderFontAsset font) => font.family,
                       ),
+                    }.map(
+                      (String family) => DropdownMenuItem<String>(
+                        value: family,
+                        child: Text(family, overflow: TextOverflow.ellipsis),
+                      ),
+                    ),
+                  ],
+                  onChanged: (String? value) {
+                    if (value != null) {
+                      widget.onSetAppTheme(
+                        widget.appTheme.copyWith(fontFamily: value),
+                      );
+                    }
+                  },
+                ),
+                const SizedBox(height: 7),
+                OutlinedButton.icon(
+                  onPressed:
+                      widget.onImportFont == null
+                          ? null
+                          : () async {
+                            final BuilderFontAsset? font =
+                                await widget.onImportFont!();
+                            if (font != null) {
+                              widget.onSetAppTheme(
+                                widget.appTheme.copyWith(
+                                  fontFamily: font.family,
+                                ),
+                              );
+                            }
+                          },
+                  icon: const Icon(Icons.font_download_outlined, size: 16),
+                  label: const Text('Import font file'),
+                  style: OutlinedButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                    textStyle: const TextStyle(fontSize: 11),
+                  ),
+                ),
+                ...widget.fontAssets.map(
+                  (BuilderFontAsset font) => ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(
+                      '${font.family} · ${font.weight}',
+                      style: const TextStyle(fontSize: 11),
+                    ),
+                    subtitle: Text(
+                      font.source,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: EditorPalette.mutedText(context),
+                        fontSize: 9,
+                      ),
+                    ),
+                    trailing: IconButton(
+                      tooltip: 'Remove bundled font',
+                      visualDensity: VisualDensity.compact,
+                      onPressed: () => widget.onRemoveFontAsset?.call(font.id),
+                      icon: const Icon(Icons.close, size: 16),
+                    ),
+                  ),
                 ),
                 const SizedBox(height: 10),
                 _fieldLabel('Corner radius'),
@@ -405,6 +483,8 @@ class _InspectorPanelState extends State<InspectorPanel> {
           'appBar',
           'floatingActionButton',
           'expanded',
+          'flexible',
+          'spacer',
         }.contains(node.type);
     if (supportsNodeModifiers) {
       add(
@@ -430,6 +510,8 @@ class _InspectorPanelState extends State<InspectorPanel> {
       'appBar',
       'floatingActionButton',
       'expanded',
+      'flexible',
+      'spacer',
     }.contains(node.type)) {
       add(
         'Responsive sizing',
@@ -437,7 +519,6 @@ class _InspectorPanelState extends State<InspectorPanel> {
         _sizeModeProperties(node),
       );
     }
-
     if (node.type == 'container') {
       add(
         'Size',
@@ -464,15 +545,17 @@ class _InspectorPanelState extends State<InspectorPanel> {
         expanded: true,
       );
     }
-    if (node.type == 'expanded') {
+    if (<String>{'expanded', 'flexible', 'spacer'}.contains(node.type)) {
       add(
         'Flex',
-        'flex factor expanded row column',
-        _expandedProperties(node),
+        'flex factor expanded flexible spacer row column fit',
+        _flexChildProperties(node),
         expanded: true,
       );
     }
-    if ((node.type == 'safeArea' || node.type == 'expanded') &&
+    if ((node.type == 'safeArea' ||
+            node.type == 'expanded' ||
+            node.type == 'flexible') &&
         node.children.isNotEmpty) {
       add(
         'Children',
@@ -505,20 +588,38 @@ class _InspectorPanelState extends State<InspectorPanel> {
     if (<String>{
       'stack',
       'listView',
+      'databaseList',
+      'singleChildScrollView',
       'gridView',
       'pageView',
       'swipeableStack',
+      'sizedBox',
     }.contains(node.type)) {
       add(
         'Size',
         'width height dimensions',
-        _sizeProperties(node),
+        node.type == 'sizedBox'
+            ? _sizedBoxProperties(node)
+            : _sizeProperties(node),
         expanded: true,
       );
       if (node.type == 'stack')
         add('Layout', 'alignment fit stack children', _stackProperties(node));
       if (node.type == 'listView')
         add('List', 'scroll direction spacing', _listProperties(node));
+      if (node.type == 'databaseList')
+        add(
+          'Database List',
+          'collection records rows empty message',
+          _databaseListProperties(node),
+          expanded: true,
+        );
+      if (node.type == 'singleChildScrollView')
+        add(
+          'Scroll View',
+          'scroll direction reverse axis',
+          _scrollViewProperties(node),
+        );
       if (node.type == 'gridView')
         add('Grid', 'cross axis count spacing', _gridProperties(node));
       if (node.type == 'swipeableStack')
@@ -530,6 +631,24 @@ class _InspectorPanelState extends State<InspectorPanel> {
           _childrenSummary(node),
           expanded: true,
         );
+    }
+    if (node.type == 'align') {
+      add('Alignment', 'align child position', <Widget>[
+        _alignmentDropdown(node, 'alignment'),
+      ]);
+    }
+    if (node.type == 'wrap') {
+      add('Wrap', 'direction spacing run spacing', _wrapProperties(node));
+    }
+    if (node.type == 'aspectRatio') {
+      add('Layout', 'aspect ratio width height', <Widget>[
+        _numberField(node, 'aspectRatio', label: 'Aspect ratio', fallback: 1.5),
+      ]);
+    }
+    if (node.type == 'clipRRect') {
+      add('Clip', 'corner radius rounded clipping', <Widget>[
+        _numberField(node, 'borderRadius', label: 'Radius', fallback: 12),
+      ]);
     }
     if (node.type == 'image') {
       add(
@@ -738,6 +857,31 @@ class _InspectorPanelState extends State<InspectorPanel> {
           ),
         ),
       ], expanded: true);
+    }
+    if (!<String>{
+      'expanded',
+      'appBar',
+      'floatingActionButton',
+      'extendedFloatingActionButton',
+      'bottomAppBar',
+      'bottomSheet',
+      'navigationBar',
+      'navigationDrawer',
+      'navigationRail',
+    }.contains(node.type)) {
+      add(
+        'Responsive overrides',
+        'phone tablet desktop breakpoint width height font size spacing visibility color',
+        <Widget>[
+          _ResponsiveOverridesEditor(
+            key: ValueKey<String>('responsive-${node.id}'),
+            node: node,
+            onChanged:
+                (Map<String, Object?> value) =>
+                    widget.onSetProperty(node.id, 'responsiveOverrides', value),
+          ),
+        ],
+      );
     }
     if (sections.isEmpty) {
       return <Widget>[
@@ -1054,6 +1198,52 @@ class _InspectorPanelState extends State<InspectorPanel> {
     _numberField(node, 'itemSpacing', label: 'Item spacing', fallback: 8),
   ];
 
+  List<Widget> _databaseListProperties(BuilderNode node) => <Widget>[
+    DropdownButtonFormField<String>(
+      key: ValueKey<String>(
+        'database-list-collection-${node.id}-${node.properties['collectionId']}',
+      ),
+      initialValue:
+          widget.databaseCollections.any(
+                (BuilderDatabaseCollection item) =>
+                    item.id == node.properties['collectionId'],
+              )
+              ? node.properties['collectionId'] as String
+              : '',
+      isExpanded: true,
+      decoration: _inputDecoration(labelText: 'Collection'),
+      items: <DropdownMenuItem<String>>[
+        const DropdownMenuItem(value: '', child: Text('Choose a collection')),
+        ...widget.databaseCollections.map(
+          (BuilderDatabaseCollection item) => DropdownMenuItem(
+            value: item.id,
+            child: Text(item.name, overflow: TextOverflow.ellipsis),
+          ),
+        ),
+      ],
+      onChanged: (String? value) {
+        if (value != null) widget.onSetProperty(node.id, 'collectionId', value);
+      },
+    ),
+    if (widget.databaseCollections.isEmpty)
+      Padding(
+        padding: const EdgeInsets.only(top: 5),
+        child: Text(
+          'Create a collection in Resources → Database first.',
+          style: TextStyle(
+            fontSize: 10,
+            color: EditorPalette.mutedText(context),
+          ),
+        ),
+      ),
+    const SizedBox(height: 10),
+    ..._listProperties(node),
+    const SizedBox(height: 10),
+    _fieldLabel('Empty list message'),
+    const SizedBox(height: 5),
+    _textField(node, 'emptyMessage'),
+  ];
+
   List<Widget> _gridProperties(BuilderNode node) => <Widget>[
     _numberField(node, 'crossAxisCount', label: 'Columns', fallback: 2),
     const SizedBox(height: 10),
@@ -1090,9 +1280,9 @@ class _InspectorPanelState extends State<InspectorPanel> {
     _numberField(node, 'minimum', label: 'Minimum inset', fallback: 0),
   ];
 
-  List<Widget> _expandedProperties(BuilderNode node) => <Widget>[
+  List<Widget> _flexChildProperties(BuilderNode node) => <Widget>[
     Text(
-      'Expanded fills the remaining space in a Row or Column.',
+      'Flex widgets share the remaining space in a Row or Column.',
       style: TextStyle(
         color: EditorPalette.mutedText(context),
         fontSize: 11,
@@ -1101,12 +1291,102 @@ class _InspectorPanelState extends State<InspectorPanel> {
     ),
     const SizedBox(height: 10),
     _integerField(node, 'flex', label: 'Flex factor', fallback: 1),
+    if (node.type == 'flexible') ...<Widget>[
+      const SizedBox(height: 10),
+      DropdownButtonFormField<String>(
+        key: ValueKey<String>('flex-fit-${node.id}'),
+        initialValue: node.properties['fit'] == 'tight' ? 'tight' : 'loose',
+        isExpanded: true,
+        decoration: _inputDecoration(labelText: 'Fit'),
+        items: const <DropdownMenuItem<String>>[
+          DropdownMenuItem(value: 'loose', child: Text('Loose')),
+          DropdownMenuItem(value: 'tight', child: Text('Tight')),
+        ],
+        onChanged: (String? value) {
+          if (value != null) widget.onSetProperty(node.id, 'fit', value);
+        },
+      ),
+    ],
+  ];
+
+  List<Widget> _scrollViewProperties(BuilderNode node) => <Widget>[
+    _fieldLabel('Scroll direction'),
+    DropdownButtonFormField<String>(
+      key: ValueKey<String>('scroll-view-direction-${node.id}'),
+      initialValue:
+          node.properties['scrollDirection'] == 'horizontal'
+              ? 'horizontal'
+              : 'vertical',
+      isExpanded: true,
+      decoration: _inputDecoration(),
+      items: const <DropdownMenuItem<String>>[
+        DropdownMenuItem(value: 'vertical', child: Text('Vertical')),
+        DropdownMenuItem(value: 'horizontal', child: Text('Horizontal')),
+      ],
+      onChanged: (String? value) {
+        if (value != null)
+          widget.onSetProperty(node.id, 'scrollDirection', value);
+      },
+    ),
+    SwitchListTile.adaptive(
+      key: ValueKey<String>('scroll-view-reverse-${node.id}'),
+      contentPadding: EdgeInsets.zero,
+      dense: true,
+      title: const Text('Reverse', style: TextStyle(fontSize: 11)),
+      value: node.properties['reverse'] == true,
+      onChanged:
+          (bool value) => widget.onSetProperty(node.id, 'reverse', value),
+    ),
+  ];
+
+  List<Widget> _wrapProperties(BuilderNode node) => <Widget>[
+    _fieldLabel('Direction'),
+    DropdownButtonFormField<String>(
+      key: ValueKey<String>('wrap-direction-${node.id}'),
+      initialValue:
+          node.properties['direction'] == 'vertical'
+              ? 'vertical'
+              : 'horizontal',
+      isExpanded: true,
+      decoration: _inputDecoration(),
+      items: const <DropdownMenuItem<String>>[
+        DropdownMenuItem(value: 'horizontal', child: Text('Horizontal')),
+        DropdownMenuItem(value: 'vertical', child: Text('Vertical')),
+      ],
+      onChanged: (String? value) {
+        if (value != null) widget.onSetProperty(node.id, 'direction', value);
+      },
+    ),
+    const SizedBox(height: 10),
+    _numberField(node, 'spacing', label: 'Item spacing', fallback: 8),
+    const SizedBox(height: 10),
+    _numberField(node, 'runSpacing', label: 'Line spacing', fallback: 8),
+  ];
+
+  List<Widget> _sizedBoxProperties(BuilderNode node) => <Widget>[
+    Row(
+      children: <Widget>[
+        Expanded(
+          child: _numberField(node, 'width', label: 'Width', fallback: 120),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: _numberField(node, 'height', label: 'Height', fallback: 60),
+        ),
+      ],
+    ),
   ];
 
   List<Widget> _imageProperties(BuilderNode node) => <Widget>[
     _fieldLabel('Image file'),
     const SizedBox(height: 5),
     _textField(node, 'source', hintText: 'Image path or URL'),
+    const SizedBox(height: 8),
+    _textField(
+      node,
+      'altText',
+      hintText: 'Describe the image for accessibility',
+    ),
     const SizedBox(height: 6),
     Align(
       alignment: Alignment.centerLeft,
@@ -1260,7 +1540,11 @@ class _InspectorPanelState extends State<InspectorPanel> {
 
   List<Widget> _materialComponentProperties(BuilderNode node) {
     final List<Widget> controls = <Widget>[];
-    for (final MapEntry<String, Object?> entry in node.properties.entries) {
+    final Map<String, Object?> properties = <String, Object?>{
+      ...defaultBuilderWidgetProperties(node.type),
+      ...node.properties,
+    };
+    for (final MapEntry<String, Object?> entry in properties.entries) {
       final String property = entry.key;
       final Object? value = entry.value;
       if (property.endsWith('Color') && value is int) {
@@ -1373,6 +1657,32 @@ class _InspectorPanelState extends State<InspectorPanel> {
             max: maximum,
           ),
         );
+      } else if (value is String &&
+          <String>{'destinationIcons', 'tabIcons'}.contains(property)) {
+        controls.addAll(<Widget>[
+          _fieldLabel(_componentPropertyLabel(property)),
+          const SizedBox(height: 5),
+          _textField(
+            node,
+            property,
+            fallback: value,
+            hintText:
+                property == 'destinationIcons'
+                    ? 'home,search,settings'
+                    : 'none,none,none',
+          ),
+          const SizedBox(height: 4),
+          Text(
+            property == 'destinationIcons'
+                ? 'Use one icon name per destination in label order (for example, home, search, settings).'
+                : 'Use one icon name per tab in label order. Use "none" for text-only tabs.',
+            style: TextStyle(
+              color: EditorPalette.mutedText(context),
+              fontSize: 10,
+              height: 1.3,
+            ),
+          ),
+        ]);
       } else if (value is String) {
         controls.addAll(<Widget>[
           _fieldLabel(_componentPropertyLabel(property)),
@@ -1380,6 +1690,7 @@ class _InspectorPanelState extends State<InspectorPanel> {
           _textField(
             node,
             property,
+            fallback: value,
             hintText: _componentPropertyLabel(property),
             minLines: property == 'message' || property == 'options' ? 2 : 1,
             maxLines: property == 'message' || property == 'options' ? 3 : 1,
@@ -1426,10 +1737,41 @@ class _InspectorPanelState extends State<InspectorPanel> {
     _fieldLabel('Hint text'),
     const SizedBox(height: 5),
     _textField(node, 'hintText'),
+    const SizedBox(height: 10),
+    DropdownButtonFormField<String>(
+      key: ValueKey<String>(
+        'input-variable-${node.id}-${node.properties['inputVariableId']}',
+      ),
+      initialValue:
+          widget.variables.any(
+                (BuilderVariable item) =>
+                    item.id == node.properties['inputVariableId'] &&
+                    item.type == 'string',
+              )
+              ? node.properties['inputVariableId'] as String
+              : '',
+      isExpanded: true,
+      decoration: _inputDecoration(labelText: 'Save input to variable'),
+      items: <DropdownMenuItem<String>>[
+        const DropdownMenuItem(value: '', child: Text('No variable')),
+        ...widget.variables
+            .where((BuilderVariable item) => item.type == 'string')
+            .map(
+              (BuilderVariable item) => DropdownMenuItem(
+                value: item.id,
+                child: Text(item.name, overflow: TextOverflow.ellipsis),
+              ),
+            ),
+      ],
+      onChanged: (String? value) {
+        if (value != null)
+          widget.onSetProperty(node.id, 'inputVariableId', value);
+      },
+    ),
     Padding(
       padding: const EdgeInsets.only(top: 6),
       child: Text(
-        r'Insert app variables with ${variableName} or $variableName.',
+        r'Insert app variables with ${variableName}. In a Database List use ${record.fieldId}.',
         style: TextStyle(fontSize: 10, color: EditorPalette.mutedText(context)),
       ),
     ),
@@ -2685,7 +3027,7 @@ class _InspectorPanelState extends State<InspectorPanel> {
                           Padding(
                             padding: const EdgeInsets.only(top: 4),
                             child: Text(
-                              'Preview supports Dart core, math, JSON, and types from Data types. Use getVariable and setVariable with JSON plus fromJson()/toJson() to persist structured values. showMessage, navigateTo, back and print interact with the preview. External packages and Flutter context APIs are export-only.',
+                              'Canvas preview supports Dart core, math, JSON, and types from Data types. Use getVariable and setVariable with JSON plus fromJson()/toJson() to persist structured values. showMessage, navigateTo, back and print interact with the canvas preview. Material APIs are available in Flutter Preview and exports; place any import lines before the function statements.',
                               style: TextStyle(
                                 color: EditorPalette.mutedText(context),
                                 fontSize: 11,
@@ -2722,7 +3064,7 @@ class _InspectorPanelState extends State<InspectorPanel> {
                               .isNotEmpty) ...<Widget>[
                             const SizedBox(height: 6),
                             Text(
-                              'Dart code runs in the preview and exported apps. Action steps below are ignored while code is present.',
+                              'Dart code runs in Flutter Preview and exported apps. The canvas preview supports core Dart code. Action steps below are ignored while code is present.',
                               style: TextStyle(
                                 color: EditorPalette.mutedText(context),
                                 fontSize: 11,
@@ -2881,17 +3223,22 @@ class _InspectorPanelState extends State<InspectorPanel> {
   List<String> _customFunctionSyntaxErrors(String body) {
     if (body.trim().isEmpty) return <String>[];
 
-    const String prefix = 'void _customFunctionBody() async {\n';
-    final String source = '$prefix$body\n}';
+    final CustomFunctionSource parts = CustomFunctionSource.parse(body);
+    final String imports =
+        parts.imports.isEmpty ? '' : '${parts.imports.join('\n')}\n';
+    final String prefix = '${imports}void _customFunctionBody() async {\n';
+    final String source = '$prefix${parts.body}\n}';
     final parsed = parseString(
       content: source,
       path: 'custom_function.dart',
       throwIfDiagnostics: false,
     );
-    final int bodyEnd = prefix.length + body.length;
+    final int bodyEnd = prefix.length + parts.body.length;
     final List<String> errors = <String>[];
     for (final error in parsed.errors) {
-      if (error.offset < prefix.length || error.offset > bodyEnd) continue;
+      if ((error.offset >= imports.length && error.offset < prefix.length) ||
+          error.offset > bodyEnd)
+        continue;
       final int line =
           '\n'.allMatches(source.substring(0, error.offset)).length;
       errors.add('Line $line: ${error.message}');
@@ -2954,6 +3301,10 @@ class _InspectorPanelState extends State<InspectorPanel> {
     PopupMenuItem(value: 'loop', child: Text('Repeat actions')),
     PopupMenuItem(value: 'httpRequest', child: Text('HTTP request')),
     PopupMenuItem(value: 'databaseInsert', child: Text('Save database record')),
+    PopupMenuItem(
+      value: 'databaseUpdate',
+      child: Text('Update database record'),
+    ),
     PopupMenuItem(value: 'databaseQuery', child: Text('Load database records')),
     PopupMenuItem(
       value: 'databaseDelete',
@@ -3121,10 +3472,97 @@ class _InspectorPanelState extends State<InspectorPanel> {
   ) {
     final String collectionId = action['collectionId'] as String? ?? '';
     final String resultId = action['resultVariableId'] as String? ?? '';
+    final BuilderDatabaseCollection? collection = _firstOrNull(
+      widget.databaseCollections.where(
+        (BuilderDatabaseCollection item) => item.id == collectionId,
+      ),
+    );
+    final List<BuilderDatabaseField> fields =
+        collection?.fields ?? <BuilderDatabaseField>[];
+    final List<Map<String, Object?>> joins = _actionMaps(action['joins']);
+    final Map<String, BuilderDatabaseCollection> collectionsById =
+        <String, BuilderDatabaseCollection>{
+          for (final BuilderDatabaseCollection item
+              in widget.databaseCollections)
+            item.id: item,
+        };
+    final List<Map<String, Object?>> resolvedJoins = resolveDatabaseQueryJoins(
+      rootCollectionId: collectionId,
+      relationships: widget.databaseRelationships,
+      collectionsById: collectionsById,
+      configuredJoins: joins,
+    );
+    final List<Map<String, Object?>> fieldScopes = <Map<String, Object?>>[
+      for (final BuilderDatabaseField field in fields)
+        <String, Object?>{
+          'relationshipId': '',
+          'alias': collection?.name ?? 'Base collection',
+          'field': field,
+        },
+      for (final Map<String, Object?> join in resolvedJoins)
+        for (final BuilderDatabaseField field
+            in (collectionsById[join['relatedCollectionId']]?.fields ??
+                const <BuilderDatabaseField>[]))
+          <String, Object?>{
+            'relationshipId': join['relationshipId'],
+            'alias': join['alias'],
+            'field': field,
+          },
+    ];
+    final List<Map<String, Object?>> filters = _actionMaps(action['filters']);
+    final String filterMode = action['filterMode'] == 'any' ? 'any' : 'all';
+    final String sortRelationshipId =
+        action['sortRelationshipId'] as String? ?? '';
+    final String sortFieldId = action['sortFieldId'] as String? ?? '';
+
+    String fieldToken(String relationshipId, String fieldId) =>
+        jsonEncode(<String>[relationshipId, fieldId]);
+
+    String tokenFor(Map<String, Object?> item) => fieldToken(
+      item['relationshipId'] as String? ?? '',
+      (item['field']! as BuilderDatabaseField).id,
+    );
+
+    Map<String, Object?>? selectedScope(String relationshipId, String fieldId) {
+      for (final Map<String, Object?> scope in fieldScopes) {
+        final BuilderDatabaseField field =
+            scope['field']! as BuilderDatabaseField;
+        if (scope['relationshipId'] == relationshipId && field.id == fieldId) {
+          return scope;
+        }
+      }
+      return null;
+    }
+
+    void updateFilter(int index, Map<String, Object?> changes) {
+      final List<Map<String, Object?>> updated = <Map<String, Object?>>[
+        ...filters,
+      ];
+      updated[index] = <String, Object?>{...updated[index], ...changes};
+      _setActionValue(node, id, 'filters', updated);
+    }
+
     final List<BuilderVariable> jsonVariables =
         widget.variables
             .where((BuilderVariable variable) => variable.type == 'json')
             .toList();
+    final Set<String> selectedRelationshipIds = <String>{
+      for (final Map<String, Object?> join in joins)
+        if (join['relationshipId'] is String) join['relationshipId']! as String,
+    };
+    final List<BuilderDatabaseRelationship> availableRelationships =
+        widget.databaseRelationships.where((BuilderDatabaseRelationship item) {
+          if (item.fromCollectionId != collectionId &&
+              item.toCollectionId != collectionId) {
+            return false;
+          }
+          final String relatedId =
+              item.fromCollectionId == collectionId
+                  ? item.toCollectionId
+                  : item.fromCollectionId;
+          return collectionsById.containsKey(relatedId) &&
+              !selectedRelationshipIds.contains(item.id);
+        }).toList();
     return <Widget>[
       DropdownButtonFormField<String>(
         key: ValueKey<String>('database-collection-$id-$collectionId'),
@@ -3146,7 +3584,18 @@ class _InspectorPanelState extends State<InspectorPanel> {
           ),
         ],
         onChanged: (String? value) {
-          if (value != null) _setActionValue(node, id, 'collectionId', value);
+          if (value == null) return;
+          if (type == 'databaseQuery') {
+            _setActionValues(node, id, <String, Object?>{
+              'collectionId': value,
+              'joins': <Map<String, Object?>>[],
+              'filters': <Map<String, Object?>>[],
+              'sortRelationshipId': '',
+              'sortFieldId': '',
+            });
+          } else {
+            _setActionValue(node, id, 'collectionId', value);
+          }
         },
       ),
       if (widget.databaseCollections.isEmpty) ...<Widget>[
@@ -3162,10 +3611,554 @@ class _InspectorPanelState extends State<InspectorPanel> {
           'record',
           'Record JSON',
           maxLines: 4,
-          hintText: '{"title":"New item"}',
+          hintText: r'{"title":"$newTodo"}',
+        ),
+      ],
+      if (type == 'databaseUpdate') ...<Widget>[
+        const SizedBox(height: 8),
+        _actionTextField(
+          node,
+          id,
+          action,
+          'recordId',
+          'Record ID',
+          hintText: r'Use ${record._id} inside a Database List item.',
+        ),
+        const SizedBox(height: 8),
+        _actionTextField(
+          node,
+          id,
+          action,
+          'record',
+          'Fields to update (JSON)',
+          maxLines: 4,
+          hintText: r'{"done":true} or {"title":"${record.title}"}',
         ),
       ],
       if (type == 'databaseQuery') ...<Widget>[
+        const SizedBox(height: 8),
+        Text(
+          'Related collections',
+          style: TextStyle(
+            color: EditorPalette.text(context),
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 5),
+        ...joins.asMap().entries.map((
+          MapEntry<int, Map<String, Object?>> entry,
+        ) {
+          final int index = entry.key;
+          final Map<String, Object?> join = entry.value;
+          final String relationshipId = join['relationshipId'] as String? ?? '';
+          final BuilderDatabaseRelationship? relationship = _firstOrNull(
+            widget.databaseRelationships.where(
+              (BuilderDatabaseRelationship item) =>
+                  item.id == relationshipId &&
+                  (item.fromCollectionId == collectionId ||
+                      item.toCollectionId == collectionId),
+            ),
+          );
+          final Map<String, Object?>? resolved = _firstOrNull(
+            resolvedJoins.where(
+              (Map<String, Object?> item) =>
+                  item['relationshipId'] == relationshipId,
+            ),
+          );
+          final String alias = join['alias'] as String? ?? '';
+          final String joinType =
+              join['joinType'] == 'inner' ? 'inner' : 'left';
+          return Container(
+            key: ValueKey<String>('database-query-join-$id-$relationshipId'),
+            margin: const EdgeInsets.only(bottom: 7),
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              border: Border.all(color: EditorPalette.border(context)),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Column(
+              children: <Widget>[
+                Row(
+                  children: <Widget>[
+                    Expanded(
+                      child: Text(
+                        resolved == null
+                            ? relationship?.name ?? relationshipId
+                            : '${collectionsById[resolved['relatedCollectionId']]?.name ?? relationshipId}${resolved['many'] == true ? ' · many' : ''}',
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Remove related collection',
+                      visualDensity: VisualDensity.compact,
+                      onPressed: () {
+                        final List<Map<String, Object?>> updatedJoins =
+                            <Map<String, Object?>>[
+                              for (int item = 0; item < joins.length; item++)
+                                if (item != index) joins[item],
+                            ];
+                        final List<Map<String, Object?>> updatedFilters =
+                            <Map<String, Object?>>[
+                              for (final Map<String, Object?> filter in filters)
+                                if (filter['relationshipId'] != relationshipId)
+                                  filter,
+                            ];
+                        _setActionValues(node, id, <String, Object?>{
+                          'joins': updatedJoins,
+                          'filters': updatedFilters,
+                          if (sortRelationshipId == relationshipId)
+                            'sortRelationshipId': '',
+                          if (sortRelationshipId == relationshipId)
+                            'sortFieldId': '',
+                        });
+                      },
+                      icon: const Icon(Icons.close, size: 18),
+                    ),
+                  ],
+                ),
+                TextFormField(
+                  key: ValueKey<String>('query-join-alias-$id-$relationshipId'),
+                  initialValue: alias,
+                  decoration: _inputDecoration(
+                    labelText: 'Result key',
+                    hintText: 'Nested key for related data',
+                  ),
+                  onChanged: (String value) {
+                    final List<Map<String, Object?>> updated =
+                        <Map<String, Object?>>[
+                          for (int item = 0; item < joins.length; item++)
+                            if (item == index)
+                              <String, Object?>{...joins[item], 'alias': value}
+                            else
+                              joins[item],
+                        ];
+                    _setActionValue(node, id, 'joins', updated);
+                  },
+                ),
+                const SizedBox(height: 6),
+                DropdownButtonFormField<String>(
+                  key: ValueKey<String>(
+                    'query-join-type-$id-$relationshipId-$joinType',
+                  ),
+                  initialValue: joinType,
+                  isExpanded: true,
+                  decoration: _inputDecoration(labelText: 'Join type'),
+                  items: const <DropdownMenuItem<String>>[
+                    DropdownMenuItem(
+                      value: 'left',
+                      child: Text('Left join · keep unmatched rows'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'inner',
+                      child: Text('Inner join · matching rows only'),
+                    ),
+                  ],
+                  onChanged: (String? value) {
+                    if (value == null) return;
+                    final List<Map<String, Object?>> updated =
+                        <Map<String, Object?>>[
+                          for (int item = 0; item < joins.length; item++)
+                            if (item == index)
+                              <String, Object?>{
+                                ...joins[item],
+                                'joinType': value,
+                              }
+                            else
+                              joins[item],
+                        ];
+                    _setActionValue(node, id, 'joins', updated);
+                  },
+                ),
+              ],
+            ),
+          );
+        }),
+        DropdownButtonFormField<String>(
+          key: ValueKey<String>('query-add-join-$id-${joins.length}'),
+          initialValue: '',
+          isExpanded: true,
+          decoration: _inputDecoration(labelText: 'Add a relationship'),
+          items: <DropdownMenuItem<String>>[
+            const DropdownMenuItem(
+              value: '',
+              child: Text('Choose related collection'),
+            ),
+            ...availableRelationships.map((BuilderDatabaseRelationship item) {
+              final String relatedId =
+                  item.fromCollectionId == collectionId
+                      ? item.toCollectionId
+                      : item.fromCollectionId;
+              return DropdownMenuItem<String>(
+                value: item.id,
+                child: Text(
+                  '${collectionsById[relatedId]?.name ?? item.name} · ${item.name}',
+                  overflow: TextOverflow.ellipsis,
+                ),
+              );
+            }),
+          ],
+          onChanged: (String? value) {
+            if (value == null || value.isEmpty) return;
+            final BuilderDatabaseRelationship? relationship = _firstOrNull(
+              availableRelationships.where(
+                (BuilderDatabaseRelationship item) => item.id == value,
+              ),
+            );
+            if (relationship == null) return;
+            final String relatedId =
+                relationship.fromCollectionId == collectionId
+                    ? relationship.toCollectionId
+                    : relationship.fromCollectionId;
+            final String baseAlias =
+                collectionsById[relatedId]?.name ?? relationship.name;
+            final Set<String> aliases = <String>{
+              '_id',
+              ...fields.map((BuilderDatabaseField field) => field.id),
+              for (final Map<String, Object?> join in joins)
+                (join['alias'] as String? ?? '').trim(),
+            };
+            String alias = baseAlias;
+            int suffix = 2;
+            while (aliases.contains(alias) || alias == '_id') {
+              alias = '${baseAlias}_$suffix';
+              suffix++;
+            }
+            _setActionValue(node, id, 'joins', <Map<String, Object?>>[
+              ...joins,
+              <String, Object?>{
+                'relationshipId': value,
+                'alias': alias,
+                'joinType': 'left',
+              },
+            ]);
+          },
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Conditions',
+          style: TextStyle(
+            color: EditorPalette.text(context),
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 5),
+        if (filters.length > 1)
+          DropdownButtonFormField<String>(
+            key: ValueKey<String>('query-filter-mode-$id-$filterMode'),
+            initialValue: filterMode,
+            isExpanded: true,
+            decoration: _inputDecoration(labelText: 'Match conditions'),
+            items: const <DropdownMenuItem<String>>[
+              DropdownMenuItem(
+                value: 'all',
+                child: Text('All conditions (AND)'),
+              ),
+              DropdownMenuItem(value: 'any', child: Text('Any condition (OR)')),
+            ],
+            onChanged: (String? value) {
+              if (value != null) {
+                _setActionValue(node, id, 'filterMode', value);
+              }
+            },
+          ),
+        ...List<Widget>.generate(filters.length, (int index) {
+          final Map<String, Object?> filter = filters[index];
+          final String filterId = filter['id'] as String? ?? 'filter_$index';
+          final String fieldId = filter['fieldId'] as String? ?? '';
+          final String filterRelationshipId =
+              filter['relationshipId'] as String? ?? '';
+          final String operator = filter['operator'] as String? ?? 'equals';
+          final Map<String, Object?>? filterScope = selectedScope(
+            filterRelationshipId,
+            fieldId,
+          );
+          final BuilderDatabaseField? filterField =
+              filterScope?['field'] as BuilderDatabaseField?;
+          final String selectedToken = fieldToken(
+            filterRelationshipId,
+            fieldId,
+          );
+          return Container(
+            key: ValueKey<String>('database-query-filter-$id-$filterId'),
+            margin: const EdgeInsets.only(bottom: 7),
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              border: Border.all(color: EditorPalette.border(context)),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Column(
+              children: <Widget>[
+                Row(
+                  children: <Widget>[
+                    Expanded(
+                      child: DropdownButtonFormField<String>(
+                        key: ValueKey<String>(
+                          'query-field-$id-$filterId-$selectedToken',
+                        ),
+                        initialValue: filterScope != null ? selectedToken : '',
+                        isExpanded: true,
+                        decoration: _inputDecoration(labelText: 'Field'),
+                        items: <DropdownMenuItem<String>>[
+                          const DropdownMenuItem(
+                            value: '',
+                            child: Text('Choose field'),
+                          ),
+                          ...fieldScopes.map((Map<String, Object?> scope) {
+                            final BuilderDatabaseField field =
+                                scope['field']! as BuilderDatabaseField;
+                            return DropdownMenuItem<String>(
+                              value: tokenFor(scope),
+                              child: Text(
+                                '${scope['alias']}.${field.name} · ${field.id} (${field.type})',
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            );
+                          }),
+                        ],
+                        onChanged: (String? value) {
+                          if (value != null && value.isNotEmpty) {
+                            final List<Object?> selected =
+                                jsonDecode(value) as List<Object?>;
+                            updateFilter(index, <String, Object?>{
+                              'relationshipId': selected[0] as String,
+                              'fieldId': selected[1] as String,
+                            });
+                          }
+                        },
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Remove condition',
+                      visualDensity: VisualDensity.compact,
+                      onPressed: () {
+                        final List<Map<String, Object?>> updated =
+                            <Map<String, Object?>>[
+                              for (int item = 0; item < filters.length; item++)
+                                if (item != index) filters[item],
+                            ];
+                        _setActionValue(node, id, 'filters', updated);
+                      },
+                      icon: const Icon(Icons.close, size: 18),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                DropdownButtonFormField<String>(
+                  key: ValueKey<String>(
+                    'query-operator-$id-$filterId-$operator',
+                  ),
+                  initialValue: operator,
+                  isExpanded: true,
+                  decoration: _inputDecoration(labelText: 'Operator'),
+                  items: const <DropdownMenuItem<String>>[
+                    DropdownMenuItem(value: 'equals', child: Text('Equals')),
+                    DropdownMenuItem(
+                      value: 'notEquals',
+                      child: Text('Does not equal'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'contains',
+                      child: Text('Contains'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'greaterThan',
+                      child: Text('Greater than'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'greaterThanOrEqual',
+                      child: Text('Greater than or equal to'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'lessThan',
+                      child: Text('Less than'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'lessThanOrEqual',
+                      child: Text('Less than or equal to'),
+                    ),
+                    DropdownMenuItem(value: 'isNull', child: Text('Is empty')),
+                    DropdownMenuItem(
+                      value: 'isNotNull',
+                      child: Text('Is not empty'),
+                    ),
+                  ],
+                  onChanged: (String? value) {
+                    if (value != null) {
+                      updateFilter(index, <String, Object?>{'operator': value});
+                    }
+                  },
+                ),
+                if (!<String>{
+                  'isNull',
+                  'isNotNull',
+                }.contains(operator)) ...<Widget>[
+                  const SizedBox(height: 6),
+                  TextFormField(
+                    key: ValueKey<String>('query-value-$id-$filterId'),
+                    initialValue: filter['value']?.toString() ?? '',
+                    decoration: _inputDecoration(
+                      labelText:
+                          'Value${filterField == null ? '' : ' (${filterField.type})'}',
+                      hintText: 'Type a value or use \${variableId}',
+                    ),
+                    onChanged:
+                        (String value) => updateFilter(index, <String, Object?>{
+                          'value': value,
+                        }),
+                  ),
+                ],
+              ],
+            ),
+          );
+        }),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            onPressed:
+                fieldScopes.isEmpty
+                    ? null
+                    : () {
+                      final String filterId =
+                          'query_filter_${DateTime.now().microsecondsSinceEpoch}';
+                      _setActionValue(
+                        node,
+                        id,
+                        'filters',
+                        <Map<String, Object?>>[
+                          ...filters,
+                          <String, Object?>{
+                            'id': filterId,
+                            'relationshipId':
+                                fieldScopes.first['relationshipId'],
+                            'fieldId':
+                                (fieldScopes.first['field']!
+                                        as BuilderDatabaseField)
+                                    .id,
+                            'operator': 'equals',
+                            'value': '',
+                          },
+                        ],
+                      );
+                    },
+            icon: const Icon(Icons.add, size: 17),
+            label: const Text('Add condition'),
+          ),
+        ),
+        if (collection != null && fieldScopes.isEmpty)
+          const Padding(
+            padding: EdgeInsets.only(bottom: 6),
+            child: Text(
+              'Define fields in Resources → Database to filter or sort.',
+            ),
+          ),
+        DropdownButtonFormField<String>(
+          key: ValueKey<String>(
+            'query-sort-field-$id-$sortRelationshipId-$sortFieldId',
+          ),
+          initialValue:
+              selectedScope(sortRelationshipId, sortFieldId) == null
+                  ? ''
+                  : fieldToken(sortRelationshipId, sortFieldId),
+          isExpanded: true,
+          decoration: _inputDecoration(labelText: 'Sort by (optional)'),
+          items: <DropdownMenuItem<String>>[
+            const DropdownMenuItem(value: '', child: Text('No sorting')),
+            ...fieldScopes.map((Map<String, Object?> scope) {
+              final BuilderDatabaseField field =
+                  scope['field']! as BuilderDatabaseField;
+              return DropdownMenuItem<String>(
+                value: tokenFor(scope),
+                child: Text(
+                  '${scope['alias']}.${field.name} · ${field.id}',
+                  overflow: TextOverflow.ellipsis,
+                ),
+              );
+            }),
+          ],
+          onChanged: (String? value) {
+            if (value == null) return;
+            final List<Object?> selected =
+                value.isEmpty
+                    ? <Object?>['', '']
+                    : jsonDecode(value) as List<Object?>;
+            _setActionValues(node, id, <String, Object?>{
+              'sortRelationshipId': selected[0] as String,
+              'sortFieldId': selected[1] as String,
+            });
+          },
+        ),
+        if (resolvedJoins.any(
+          (Map<String, Object?> join) =>
+              join['relationshipId'] == sortRelationshipId &&
+              join['many'] == true,
+        )) ...<Widget>[
+          const SizedBox(height: 6),
+          DropdownButtonFormField<String>(
+            key: ValueKey<String>(
+              'query-sort-aggregate-$id-${action['sortAggregate']}',
+            ),
+            initialValue: action['sortAggregate'] == 'max' ? 'max' : 'min',
+            isExpanded: true,
+            decoration: _inputDecoration(
+              labelText: 'Related row value for sorting',
+            ),
+            items: const <DropdownMenuItem<String>>[
+              DropdownMenuItem(
+                value: 'min',
+                child: Text('Lowest related value'),
+              ),
+              DropdownMenuItem(
+                value: 'max',
+                child: Text('Highest related value'),
+              ),
+            ],
+            onChanged: (String? value) {
+              if (value != null) {
+                _setActionValue(node, id, 'sortAggregate', value);
+              }
+            },
+          ),
+        ],
+        const SizedBox(height: 6),
+        DropdownButtonFormField<bool>(
+          key: ValueKey<String>(
+            'query-sort-direction-$id-${action['sortDescending']}',
+          ),
+          initialValue: action['sortDescending'] == true,
+          isExpanded: true,
+          decoration: _inputDecoration(labelText: 'Sort direction'),
+          items: const <DropdownMenuItem<bool>>[
+            DropdownMenuItem(value: false, child: Text('Ascending')),
+            DropdownMenuItem(value: true, child: Text('Descending')),
+          ],
+          onChanged: (bool? value) {
+            if (value != null) {
+              _setActionValue(node, id, 'sortDescending', value);
+            }
+          },
+        ),
+        const SizedBox(height: 6),
+        TextFormField(
+          key: ValueKey<String>('query-limit-$id'),
+          initialValue: action['limit']?.toString() ?? '0',
+          keyboardType: TextInputType.number,
+          decoration: _inputDecoration(
+            labelText: 'Maximum rows (0 = no limit)',
+          ),
+          onChanged: (String value) {
+            final int? parsed = int.tryParse(value);
+            if (parsed != null && parsed >= 0) {
+              _setActionValue(
+                node,
+                id,
+                'limit',
+                parsed.clamp(0, 100000).toInt(),
+              );
+            }
+          },
+        ),
         const SizedBox(height: 8),
         DropdownButtonFormField<String>(
           key: ValueKey<String>('database-result-$id-$resultId'),
@@ -3206,7 +4199,7 @@ class _InspectorPanelState extends State<InspectorPanel> {
           action,
           'recordId',
           'Record ID',
-          hintText: '1 or \${recordId}',
+          hintText: r'Use ${record._id} inside a Database List item.',
         ),
       ],
     ];
@@ -3500,6 +4493,10 @@ class _InspectorPanelState extends State<InspectorPanel> {
                 child: Text('Save database record'),
               ),
               DropdownMenuItem(
+                value: 'databaseUpdate',
+                child: Text('Update database record'),
+              ),
+              DropdownMenuItem(
                 value: 'databaseQuery',
                 child: Text('Load database records'),
               ),
@@ -3629,6 +4626,7 @@ class _InspectorPanelState extends State<InspectorPanel> {
           ],
           if (<String>{
             'databaseInsert',
+            'databaseUpdate',
             'databaseQuery',
             'databaseDelete',
           }.contains(type)) ...<Widget>[
@@ -3682,6 +4680,7 @@ class _InspectorPanelState extends State<InspectorPanel> {
     'loop' => 'Repeat actions',
     'httpRequest' => 'HTTP request',
     'databaseInsert' => 'Save database record',
+    'databaseUpdate' => 'Update database record',
     'databaseQuery' => 'Load database records',
     'databaseDelete' => 'Delete database record',
     'customFunction' => 'Run custom function',
@@ -3751,6 +4750,7 @@ class _InspectorPanelState extends State<InspectorPanel> {
         DropdownMenuItem<String>(value: 'start', child: Text('Start')),
         DropdownMenuItem<String>(value: 'center', child: Text('Center')),
         DropdownMenuItem<String>(value: 'end', child: Text('End')),
+        DropdownMenuItem<String>(value: 'stretch', child: Text('Stretch')),
       ],
       onChanged: (String? value) {
         if (value != null) {
@@ -3764,11 +4764,12 @@ class _InspectorPanelState extends State<InspectorPanel> {
     BuilderNode node,
     String property, {
     String? hintText,
+    Object? fallback,
     int minLines = 1,
     int maxLines = 1,
   }) => TextField(
     key: ValueKey<String>('${node.id}-$property'),
-    controller: _controllerFor(node, property),
+    controller: _controllerFor(node, property, fallback: fallback),
     minLines: minLines,
     maxLines: maxLines,
     onChanged: (String value) => widget.onSetProperty(node.id, property, value),
@@ -3936,6 +4937,7 @@ class _InspectorPanelState extends State<InspectorPanel> {
   String _crossAlignmentValue(Object? value) => switch (value) {
     'center' => 'center',
     'end' => 'end',
+    'stretch' => 'stretch',
     _ => 'start',
   };
 
@@ -3965,35 +4967,243 @@ class _InspectorPanelState extends State<InspectorPanel> {
   int _integer(Object? value, int fallback) =>
       value is num && value.isFinite ? value.round() : fallback;
 
-  String _typeLabel(String type) => switch (type) {
-    'scaffold' => 'Scaffold',
-    'column' => 'Column',
-    'row' => 'Row',
-    'expanded' => 'Expanded',
-    'safeArea' => 'Safe Area',
-    'container' => 'Container',
-    'stack' => 'Stack',
-    'listView' => 'ListView',
-    'gridView' => 'GridView',
-    'pageView' => 'PageView',
-    'swipeableStack' => 'Swipeable Stack',
-    'card' => 'Card',
-    'padding' => 'Padding',
-    'componentGroup' => 'Component Group',
-    'image' => 'Image',
-    'icon' => 'Icon',
-    'divider' => 'Divider',
-    'verticalDivider' => 'Vertical Divider',
-    'signature' => 'Signature',
-    'appBar' => 'AppBar',
-    'floatingActionButton' => 'Floating Action Button',
-    'textField' => 'TextField',
-    'checkbox' => 'Checkbox',
-    'switch' => 'Switch',
-    'button' => 'Button',
-    'text' => 'Text',
-    _ => type,
+  String _typeLabel(String type) =>
+      builderWidgetDefinitionFor(type)?.name ?? type;
+}
+
+class _ResponsiveOverridesEditor extends StatefulWidget {
+  const _ResponsiveOverridesEditor({
+    required this.node,
+    required this.onChanged,
+    super.key,
+  });
+
+  final BuilderNode node;
+  final ValueChanged<Map<String, Object?>> onChanged;
+
+  @override
+  State<_ResponsiveOverridesEditor> createState() =>
+      _ResponsiveOverridesEditorState();
+}
+
+class _ResponsiveOverridesEditorState
+    extends State<_ResponsiveOverridesEditor> {
+  static const Map<String, String> _breakpoints = <String, String>{
+    'phone': 'Phone · up to 600 px',
+    'tablet': 'Tablet · 601–1024 px',
+    'desktop': 'Desktop · over 1024 px',
   };
+  static const List<String> _properties = <String>[
+    'width',
+    'height',
+    'fontSize',
+    'padding',
+    'margin',
+    'opacity',
+    'visible',
+    'color',
+    'backgroundColor',
+  ];
+
+  String _breakpoint = 'phone';
+  String _property = 'width';
+  final TextEditingController _value = TextEditingController();
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _value.text = _overrides[_breakpoint]?[_property]?.toString() ?? '';
+  }
+
+  @override
+  void didUpdateWidget(covariant _ResponsiveOverridesEditor oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.node.id != widget.node.id ||
+        oldWidget.node.properties['responsiveOverrides'] !=
+            widget.node.properties['responsiveOverrides']) {
+      _value.text = _overrides[_breakpoint]?[_property]?.toString() ?? '';
+    }
+  }
+
+  @override
+  void dispose() {
+    _value.dispose();
+    super.dispose();
+  }
+
+  Map<String, Map<String, Object?>> get _overrides {
+    final Object? raw = widget.node.properties['responsiveOverrides'];
+    if (raw is! Map) return <String, Map<String, Object?>>{};
+    return <String, Map<String, Object?>>{
+      for (final String key in _breakpoints.keys)
+        if (raw[key] is Map) key: Map<String, Object?>.from(raw[key]! as Map),
+    };
+  }
+
+  void _apply() {
+    final Object? value = _parseValue(_value.text.trim());
+    if (value == null) {
+      setState(() => _error = 'Enter a valid value for $_property.');
+      return;
+    }
+    final Map<String, Map<String, Object?>> next = _overrides;
+    next.putIfAbsent(_breakpoint, () => <String, Object?>{})[_property] = value;
+    widget.onChanged(<String, Object?>{
+      for (final MapEntry<String, Map<String, Object?>> entry in next.entries)
+        if (entry.value.isNotEmpty) entry.key: entry.value,
+    });
+    setState(() => _error = null);
+  }
+
+  Object? _parseValue(String value) {
+    if (_property == 'visible') {
+      if (value.toLowerCase() == 'true') return true;
+      if (value.toLowerCase() == 'false') return false;
+      return null;
+    }
+    if (_property == 'color' || _property == 'backgroundColor') {
+      final String digits = value.replaceFirst(
+        RegExp(r'^(#|0x)', caseSensitive: false),
+        '',
+      );
+      final int? parsed = int.tryParse(digits, radix: 16);
+      if (parsed == null) return null;
+      return digits.length <= 6 ? 0xFF000000 | parsed : parsed;
+    }
+    final double? parsed = double.tryParse(value);
+    if (parsed == null || !parsed.isFinite) return null;
+    return _property == 'opacity' ? parsed.clamp(0, 1).toDouble() : parsed;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final Map<String, Map<String, Object?>> overrides = _overrides;
+    final Map<String, Object?> values =
+        overrides[_breakpoint] ?? const <String, Object?>{};
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        Text(
+          'Overrides apply at the selected screen width and carry into export.',
+          style: TextStyle(
+            color: EditorPalette.mutedText(context),
+            fontSize: 10,
+            height: 1.4,
+          ),
+        ),
+        const SizedBox(height: 8),
+        DropdownButtonFormField<String>(
+          initialValue: _breakpoint,
+          isExpanded: true,
+          decoration: const InputDecoration(isDense: true, labelText: 'Width'),
+          items:
+              _breakpoints.entries
+                  .map(
+                    (MapEntry<String, String> entry) =>
+                        DropdownMenuItem<String>(
+                          value: entry.key,
+                          child: Text(
+                            entry.value,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                  )
+                  .toList(),
+          onChanged: (String? value) {
+            if (value != null) {
+              setState(() {
+                _breakpoint = value;
+                _value.text = _overrides[value]?[_property]?.toString() ?? '';
+              });
+            }
+          },
+        ),
+        const SizedBox(height: 7),
+        DropdownButtonFormField<String>(
+          initialValue: _property,
+          isExpanded: true,
+          decoration: const InputDecoration(
+            isDense: true,
+            labelText: 'Property',
+          ),
+          items:
+              _properties
+                  .map(
+                    (String property) => DropdownMenuItem<String>(
+                      value: property,
+                      child: Text(property),
+                    ),
+                  )
+                  .toList(),
+          onChanged: (String? value) {
+            if (value != null) {
+              setState(() {
+                _property = value;
+                _value.text = values[value]?.toString() ?? '';
+              });
+            }
+          },
+        ),
+        const SizedBox(height: 7),
+        TextField(
+          controller: _value,
+          decoration: InputDecoration(
+            isDense: true,
+            labelText: _property == 'visible' ? 'true / false' : 'Value',
+            hintText:
+                _property == 'color' || _property == 'backgroundColor'
+                    ? '#6750A4'
+                    : null,
+          ),
+          onSubmitted: (_) => _apply(),
+        ),
+        if (_error != null) ...<Widget>[
+          const SizedBox(height: 4),
+          Text(
+            _error!,
+            style: const TextStyle(color: Color(0xFFB3261E), fontSize: 10),
+          ),
+        ],
+        Align(
+          alignment: Alignment.centerRight,
+          child: TextButton.icon(
+            onPressed: _apply,
+            icon: const Icon(Icons.add, size: 14),
+            label: const Text('Set override'),
+          ),
+        ),
+        if (values.isNotEmpty)
+          Wrap(
+            spacing: 5,
+            runSpacing: 3,
+            children:
+                values.entries
+                    .map(
+                      (MapEntry<String, Object?> entry) => InputChip(
+                        label: Text('${entry.key}: ${entry.value}'),
+                        onDeleted: () {
+                          final Map<String, Map<String, Object?>> next =
+                              _overrides;
+                          next[_breakpoint]?.remove(entry.key);
+                          next.removeWhere(
+                            (String _, Map<String, Object?> value) =>
+                                value.isEmpty,
+                          );
+                          widget.onChanged(<String, Object?>{
+                            for (final MapEntry<String, Map<String, Object?>>
+                                item
+                                in next.entries)
+                              item.key: item.value,
+                          });
+                        },
+                      ),
+                    )
+                    .toList(),
+          ),
+      ],
+    );
+  }
 }
 
 class _InspectorHeading extends StatelessWidget {

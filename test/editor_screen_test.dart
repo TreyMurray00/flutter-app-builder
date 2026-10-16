@@ -324,6 +324,49 @@ void main() {
     );
   });
 
+  testWidgets('navigation widgets keep the widget tree and palette usable', (
+    WidgetTester tester,
+  ) async {
+    tester.view.physicalSize = const Size(1600, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(const LocalBuilderApp());
+    await tester.pumpAndSettle();
+    final EditorController editor = Provider.of<EditorController>(
+      tester.element(find.byType(CanvasPreview)),
+      listen: false,
+    );
+
+    editor.addObject('navigationDrawer');
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+
+    await tester.tap(find.byTooltip('Widget tree'));
+    await tester.pumpAndSettle();
+    expect(find.text('Navigation Drawer'), findsWidgets);
+
+    await tester.tap(find.byTooltip('Widget Palette'));
+    await tester.pumpAndSettle();
+    expect(find.text('Widget Palette'), findsOneWidget);
+
+    for (final String type in <String>[
+      'navigationBar',
+      'navigationRail',
+      'menu',
+    ]) {
+      editor.addObject(type);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull, reason: 'Failed to render $type');
+    }
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Open menu'));
+    await tester.pumpAndSettle();
+    expect(find.text('Edit'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('creates an app variable in the variables manager', (
     WidgetTester tester,
   ) async {

@@ -4,6 +4,7 @@ import 'dart:io';
 
 import '../models/builder_document.dart';
 import 'dart_generator.dart';
+import 'flutter_toolchain_service.dart';
 import 'project_store.dart';
 
 /// Builds a complete Flutter project using the locally installed Flutter SDK.
@@ -40,7 +41,7 @@ class FlutterProjectExporter {
     final String projectName = DartGenerator.packageNameFor(document.name);
 
     try {
-      final String flutter = _findFlutterExecutable();
+      final String flutter = FlutterToolchainService.findFlutterExecutable();
       final Process process = await Process.start(
         flutter,
         <String>[
@@ -85,6 +86,7 @@ class FlutterProjectExporter {
             document,
             projectName: projectName,
             imageAssets: preparedAssets.widgetAssets,
+            fontAssets: preparedAssets.fontAssets,
           );
       for (final MapEntry<String, String> entry in generatedFiles.entries) {
         final File output = _fileInside(staging, entry.key);
@@ -118,58 +120,13 @@ class FlutterProjectExporter {
     }
   }
 
-  String _findFlutterExecutable() {
-    final Map<String, String> environment = Platform.environment;
-    final String? flutterRoot =
-        environment.entries
-            .where(
-              (MapEntry<String, String> entry) =>
-                  entry.key.toLowerCase() == 'flutter_root',
-            )
-            .map((MapEntry<String, String> entry) => entry.value)
-            .firstOrNull;
-    final String? userProfile =
-        environment.entries
-            .where(
-              (MapEntry<String, String> entry) =>
-                  entry.key.toLowerCase() == 'userprofile',
-            )
-            .map((MapEntry<String, String> entry) => entry.value)
-            .firstOrNull;
-    final List<String> searchDirectories = <String>[
-      if (flutterRoot != null && flutterRoot.isNotEmpty)
-        '${flutterRoot}${Platform.pathSeparator}bin',
-      if (Platform.isWindows && userProfile != null && userProfile.isNotEmpty)
-        '$userProfile${Platform.pathSeparator}flutter${Platform.pathSeparator}bin',
-      ...environment.entries
-          .where(
-            (MapEntry<String, String> entry) =>
-                entry.key.toLowerCase() == 'path',
-          )
-          .expand(
-            (MapEntry<String, String> entry) =>
-                entry.value.split(Platform.isWindows ? ';' : ':'),
-          ),
-    ];
-    final String executableName =
-        Platform.isWindows ? 'flutter.bat' : 'flutter';
-    for (final String directory in searchDirectories) {
-      final String candidate =
-          '${directory.replaceAll('"', '')}${Platform.pathSeparator}$executableName';
-      if (File(candidate).existsSync()) return candidate;
-    }
-    throw StateError(
-      'Flutter was not found on PATH. Add Flutter’s bin folder to PATH '
-      'and restart Local Flutter Builder.',
-    );
-  }
-
   Future<_PreparedAssets> _prepareAssets(
     BuilderDocument document,
     String? projectPath,
   ) async {
     final Map<String, String> widgetAssets = <String, String>{};
     final Map<String, String> assetSources = <String, String>{};
+    final List<BuilderFontAsset> fontAssets = <BuilderFontAsset>[];
     int index = 0;
     for (final BuilderPage page in document.allPages) {
       for (final BuilderNode node in page.root.depthFirst()) {
@@ -195,7 +152,31 @@ class FlutterProjectExporter {
         assetSources[asset] = sourceFile.absolute.path;
       }
     }
-    return _PreparedAssets(widgetAssets, assetSources);
+    for (int index = 0; index < document.fontAssets.length; index++) {
+      final BuilderFontAsset font = document.fontAssets[index];
+      final File sourceFile = File(
+        resolveProjectAssetPath(projectPath, font.source),
+      );
+      if (!await sourceFile.exists()) {
+        throw FileSystemException(
+          'A bundled font could not be found. Import it again before exporting.',
+          font.source,
+        );
+      }
+      final String fileName = font.source.split(RegExp(r'[/\\]')).last;
+      final String asset =
+          'assets/fonts/${index + 1}_${_safeAssetName(font.family)}_${_safeAssetName(fileName)}';
+      assetSources[asset] = sourceFile.absolute.path;
+      fontAssets.add(
+        BuilderFontAsset(
+          id: font.id,
+          family: font.family,
+          source: asset,
+          weight: font.weight,
+        ),
+      );
+    }
+    return _PreparedAssets(widgetAssets, assetSources, fontAssets);
   }
 
   String _safeAssetName(String value) {
@@ -227,12 +208,9 @@ class FlutterProjectExporter {
 }
 
 class _PreparedAssets {
-  const _PreparedAssets(this.widgetAssets, this.assetSources);
+  const _PreparedAssets(this.widgetAssets, this.assetSources, this.fontAssets);
 
   final Map<String, String> widgetAssets;
   final Map<String, String> assetSources;
-}
-
-extension<T> on Iterable<T> {
-  T? get firstOrNull => isEmpty ? null : first;
+  final List<BuilderFontAsset> fontAssets;
 }

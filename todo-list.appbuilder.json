@@ -1,0 +1,1803 @@
+{
+  "schemaVersion": 10,
+  "name": "Daymark",
+  "theme": {
+    "seedColor": 4280840285,
+    "brightness": "light",
+    "fontFamily": "",
+    "cornerRadius": 18.0,
+    "backgroundColor": 4294310133,
+    "textColor": 4280302130
+  },
+  "root": {
+    "id": "home_scaffold",
+    "type": "scaffold",
+    "properties": {},
+    "children": [
+      {
+        "id": "home_safe_area",
+        "type": "safeArea",
+        "properties": {
+          "top": true,
+          "bottom": true,
+          "right": true,
+          "left": true
+        },
+        "children": [
+          {
+            "id": "desktop_workspace",
+            "type": "row",
+            "properties": {
+              "crossAxisAlignment": "stretch",
+              "mainAxisAlignment": "start"
+            },
+            "children": [
+              {
+                "id": "sidebar_container",
+                "type": "container",
+                "properties": {
+                  "width": 250.0,
+                  "backgroundColor": 4294309887,
+                  "height": 700,
+                  "heightMode": "max"
+                },
+                "children": [
+                  {
+                    "id": "sidebar_scroll_view",
+                    "type": "singleChildScrollView",
+                    "properties": {
+                      "width": 250.0,
+                      "scrollDirection": "vertical",
+                      "reverse": false,
+                      "height": 700,
+                      "heightMode": "max"
+                    },
+                    "children": [
+                      {
+                        "id": "sidebar_content",
+                        "type": "column",
+                        "properties": {
+                          "paddingLeft": 18.0,
+                          "crossAxisAlignment": "stretch",
+                          "paddingRight": 18.0,
+                          "paddingBottom": 20.0,
+                          "mainAxisAlignment": "start",
+                          "paddingTop": 20.0
+                        },
+                        "children": [
+                          {
+                            "id": "brand_header",
+                            "type": "row",
+                            "properties": {
+                              "marginBottom": 8.0,
+                              "crossAxisAlignment": "center",
+                              "mainAxisAlignment": "start"
+                            },
+                            "children": [
+                              {
+                                "id": "brand_mark",
+                                "type": "container",
+                                "properties": {
+                                  "height": 38.0,
+                                  "width": 38.0,
+                                  "alignment": "center",
+                                  "backgroundColor": 4280835407,
+                                  "borderRadius": 14.0
+                                },
+                                "children": [
+                                  {
+                                    "id": "brand_icon",
+                                    "type": "icon",
+                                    "properties": {
+                                      "iconName": "check",
+                                      "color": 4280840285,
+                                      "size": 21.0
+                                    },
+                                    "children": []
+                                  }
+                                ]
+                              },
+                              {
+                                "id": "brand_name",
+                                "type": "text",
+                                "properties": {
+                                  "marginLeft": 10.0,
+                                  "fontWeight": "bold",
+                                  "fontSize": 14.0,
+                                  "color": 4280302130,
+                                  "text": "DAYMARK"
+                                },
+                                "children": []
+                              }
+                            ]
+                          },
+                          {
+                            "id": "brand_subtitle",
+                            "type": "text",
+                            "properties": {
+                              "fontWeight": "bold",
+                              "fontSize": 9.0,
+                              "color": 4286091399,
+                              "text": "PERSONAL TASK SPACE",
+                              "marginBottom": 28.0
+                            },
+                            "children": []
+                          },
+                          {
+                            "id": "workspace_label",
+                            "type": "text",
+                            "properties": {
+                              "fontWeight": "bold",
+                              "fontSize": 9.0,
+                              "color": 4286091399,
+                              "text": "WORKSPACE",
+                              "marginBottom": 10.0
+                            },
+                            "children": []
+                          },
+                          {
+                            "id": "active_nav_item",
+                            "type": "container",
+                            "properties": {
+                              "backgroundColor": 4294967295,
+                              "width": 210.0,
+                              "padding": 12.0,
+                              "borderRadius": 14.0,
+                              "height": 60.0
+                            },
+                            "children": [
+                              {
+                                "id": "active_nav_row",
+                                "type": "row",
+                                "properties": {
+                                  "crossAxisAlignment": "center",
+                                  "mainAxisAlignment": "start"
+                                },
+                                "children": [
+                                  {
+                                    "id": "active_nav_icon",
+                                    "type": "icon",
+                                    "properties": {
+                                      "iconName": "check",
+                                      "color": 4280840285,
+                                      "size": 17.0
+                                    },
+                                    "children": []
+                                  },
+                                  {
+                                    "id": "active_nav_title",
+                                    "type": "text",
+                                    "properties": {
+                                      "marginLeft": 9.0,
+                                      "fontWeight": "bold",
+                                      "fontSize": 13.0,
+                                      "color": 4280302130,
+                                      "text": "My tasks"
+                                    },
+                                    "children": []
+                                  }
+                                ]
+                              }
+                            ]
+                          },
+                          {
+                            "id": "sidebar_note",
+                            "type": "container",
+                            "properties": {
+                              "backgroundColor": 4280835407,
+                              "width": 210.0,
+                              "padding": 14.0,
+                              "borderRadius": 16.0,
+                              "marginTop": 18.0,
+                              "height": 108
+                            },
+                            "children": [
+                              {
+                                "id": "sidebar_note_content",
+                                "type": "column",
+                                "properties": {
+                                  "crossAxisAlignment": "start",
+                                  "mainAxisAlignment": "start"
+                                },
+                                "children": [
+                                  {
+                                    "id": "sidebar_note_label",
+                                    "type": "text",
+                                    "properties": {
+                                      "fontWeight": "bold",
+                                      "fontSize": 9.0,
+                                      "color": 4291355606,
+                                      "text": "A CLEARER DAY",
+                                      "marginBottom": 5.0
+                                    },
+                                    "children": []
+                                  },
+                                  {
+                                    "id": "sidebar_note_body",
+                                    "type": "text",
+                                    "properties": {
+                                      "fontSize": 12.0,
+                                      "color": 4292997352,
+                                      "text": "Keep the next step visible. Small steps add up."
+                                    },
+                                    "children": []
+                                  }
+                                ]
+                              }
+                            ]
+                          },
+                          {
+                            "id": "add_task_card",
+                            "type": "container",
+                            "properties": {
+                              "backgroundColor": 4294967295,
+                              "width": 210.0,
+                              "padding": 12.0,
+                              "borderRadius": 16.0,
+                              "marginTop": 26.0,
+                              "height": 108
+                            },
+                            "children": [
+                              {
+                                "id": "add_task_content",
+                                "type": "column",
+                                "properties": {
+                                  "crossAxisAlignment": "stretch",
+                                  "mainAxisAlignment": "start"
+                                },
+                                "children": [
+                                  {
+                                    "id": "add_task_label",
+                                    "type": "text",
+                                    "properties": {
+                                      "fontWeight": "bold",
+                                      "fontSize": 10.0,
+                                      "color": 4286091399,
+                                      "text": "NEW TASK",
+                                      "marginBottom": 8.0
+                                    },
+                                    "children": []
+                                  },
+                                  {
+                                    "id": "add_task_controls",
+                                    "type": "row",
+                                    "properties": {
+                                      "crossAxisAlignment": "center",
+                                      "mainAxisAlignment": "start"
+                                    },
+                                    "children": [
+                                      {
+                                        "id": "new_task_field_flex",
+                                        "type": "expanded",
+                                        "properties": {
+                                          "flex": 1
+                                        },
+                                        "children": [
+                                          {
+                                            "id": "new_task_field",
+                                            "type": "textField",
+                                            "properties": {
+                                              "inputVariableId": "new_task_title",
+                                              "initialValue": "",
+                                              "width": 108,
+                                              "label": "",
+                                              "hintText": "Add a task"
+                                            },
+                                            "children": []
+                                          }
+                                        ]
+                                      },
+                                      {
+                                        "id": "new_task_add_button",
+                                        "type": "iconButton",
+                                        "properties": {
+                                          "style": "filled",
+                                          "actions": [
+                                            {
+                                              "id": "validate_new_task",
+                                              "type": "conditional",
+                                              "variableId": "new_task_title",
+                                              "operator": "notEquals",
+                                              "value": "",
+                                              "thenActions": [
+                                                {
+                                                  "id": "insert_task_record",
+                                                  "type": "databaseInsert",
+                                                  "collectionId": "tasks",
+                                                  "record": "{\"title\":\"$new_task_title\",\"status\":\"Open\"}"
+                                                },
+                                                {
+                                                  "id": "clear_new_task_title",
+                                                  "type": "setVariable",
+                                                  "variableId": "new_task_title",
+                                                  "value": ""
+                                                }
+                                              ],
+                                              "elseActions": [
+                                                {
+                                                  "id": "empty_task_message",
+                                                  "type": "snackbar",
+                                                  "message": "Write a task before adding it."
+                                                }
+                                              ]
+                                            }
+                                          ],
+                                          "iconName": "add",
+                                          "tooltip": "Add task"
+                                        },
+                                        "children": []
+                                      }
+                                    ]
+                                  }
+                                ]
+                              }
+                            ]
+                          },
+                          {
+                            "id": "edit_task_form",
+                            "type": "container",
+                            "properties": {
+                              "marginTop": 14.0,
+                              "padding": 12.0,
+                              "width": 210.0,
+                              "visible": false,
+                              "borderRadius": 16.0,
+                              "backgroundColor": 4294967295,
+                              "height": 148
+                            },
+                            "children": [
+                              {
+                                "id": "edit_task_content",
+                                "type": "column",
+                                "properties": {
+                                  "crossAxisAlignment": "stretch",
+                                  "mainAxisAlignment": "start"
+                                },
+                                "children": [
+                                  {
+                                    "id": "edit_task_label",
+                                    "type": "text",
+                                    "properties": {
+                                      "fontWeight": "bold",
+                                      "fontSize": 10.0,
+                                      "color": 4286091399,
+                                      "text": "EDIT TASK",
+                                      "marginBottom": 8.0
+                                    },
+                                    "children": []
+                                  },
+                                  {
+                                    "id": "edit_task_title_field",
+                                    "type": "textField",
+                                    "properties": {
+                                      "inputVariableId": "edit_task_title",
+                                      "width": 184.0,
+                                      "hintText": "Update this task",
+                                      "initialValue": "",
+                                      "label": "Task title"
+                                    },
+                                    "children": []
+                                  },
+                                  {
+                                    "id": "edit_task_actions",
+                                    "type": "wrap",
+                                    "properties": {
+                                      "direction": "horizontal",
+                                      "spacing": 4.0,
+                                      "runSpacing": 4.0
+                                    },
+                                    "children": [
+                                      {
+                                        "id": "save_task_edit_button",
+                                        "type": "button",
+                                        "properties": {
+                                          "style": "filledTonal",
+                                          "actions": [
+                                            {
+                                              "id": "validate_task_edit",
+                                              "type": "conditional",
+                                              "variableId": "edit_task_title",
+                                              "operator": "notEquals",
+                                              "value": "",
+                                              "thenActions": [
+                                                {
+                                                  "id": "update_task_title",
+                                                  "type": "databaseUpdate",
+                                                  "collectionId": "tasks",
+                                                  "recordId": "$editing_task_id",
+                                                  "record": "{\"title\":\"$edit_task_title\"}"
+                                                },
+                                                {
+                                                  "id": "clear_edit_title",
+                                                  "type": "setVariable",
+                                                  "variableId": "edit_task_title",
+                                                  "value": ""
+                                                },
+                                                {
+                                                  "id": "clear_edit_id",
+                                                  "type": "setVariable",
+                                                  "variableId": "editing_task_id",
+                                                  "value": ""
+                                                },
+                                                {
+                                                  "id": "hide_edit_form",
+                                                  "type": "updateWidget",
+                                                  "targetPageId": "home",
+                                                  "targetNodeId": "edit_task_form",
+                                                  "property": "visible",
+                                                  "value": false
+                                                }
+                                              ],
+                                              "elseActions": [
+                                                {
+                                                  "id": "empty_edit_message",
+                                                  "type": "snackbar",
+                                                  "message": "Enter a task title."
+                                                }
+                                              ]
+                                            }
+                                          ],
+                                          "label": "Save"
+                                        },
+                                        "children": []
+                                      },
+                                      {
+                                        "id": "cancel_task_edit_button",
+                                        "type": "button",
+                                        "properties": {
+                                          "style": "text",
+                                          "actions": [
+                                            {
+                                              "id": "cancel_edit_title",
+                                              "type": "setVariable",
+                                              "variableId": "edit_task_title",
+                                              "value": ""
+                                            },
+                                            {
+                                              "id": "cancel_edit_id",
+                                              "type": "setVariable",
+                                              "variableId": "editing_task_id",
+                                              "value": ""
+                                            },
+                                            {
+                                              "id": "cancel_hide_edit_form",
+                                              "type": "updateWidget",
+                                              "targetPageId": "home",
+                                              "targetNodeId": "edit_task_form",
+                                              "property": "visible",
+                                              "value": false
+                                            }
+                                          ],
+                                          "label": "Cancel"
+                                        },
+                                        "children": []
+                                      }
+                                    ]
+                                  }
+                                ]
+                              }
+                            ]
+                          },
+                          {
+                            "id": "sidebar_spacer",
+                            "type": "sizedBox",
+                            "properties": {
+                              "width": 1.0,
+                              "height": 24.0
+                            },
+                            "children": []
+                          },
+                          {
+                            "id": "sidebar_footer",
+                            "type": "text",
+                            "properties": {
+                              "fontWeight": "bold",
+                              "fontSize": 9.0,
+                              "color": 4286091399,
+                              "text": "SAVED LOCALLY"
+                            },
+                            "children": []
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "main_panel_flex",
+                "type": "expanded",
+                "properties": {
+                  "flex": 1
+                },
+                "children": [
+                  {
+                    "id": "main_panel",
+                    "type": "column",
+                    "properties": {
+                      "paddingLeft": 34.0,
+                      "crossAxisAlignment": "stretch",
+                      "paddingRight": 34.0,
+                      "paddingBottom": 20.0,
+                      "mainAxisAlignment": "start",
+                      "paddingTop": 28.0
+                    },
+                    "children": [
+                      {
+                        "id": "main_header",
+                        "type": "row",
+                        "properties": {
+                          "marginBottom": 28.0,
+                          "crossAxisAlignment": "center",
+                          "mainAxisAlignment": "spaceBetween"
+                        },
+                        "children": [
+                          {
+                            "id": "main_heading_group",
+                            "type": "column",
+                            "properties": {
+                              "crossAxisAlignment": "start",
+                              "mainAxisAlignment": "start"
+                            },
+                            "children": [
+                              {
+                                "id": "main_eyebrow",
+                                "type": "text",
+                                "properties": {
+                                  "fontWeight": "bold",
+                                  "fontSize": 10.0,
+                                  "color": 4286091399,
+                                  "text": "DAYMARK / TODAY",
+                                  "marginBottom": 5.0
+                                },
+                                "children": []
+                              },
+                              {
+                                "id": "main_title",
+                                "type": "text",
+                                "properties": {
+                                  "fontWeight": "bold",
+                                  "fontSize": 30.0,
+                                  "color": 4280302130,
+                                  "text": "Your task board"
+                                },
+                                "children": []
+                              },
+                              {
+                                "id": "main_subtitle",
+                                "type": "text",
+                                "properties": {
+                                  "fontSize": 14.0,
+                                  "color": 4285431928,
+                                  "text": "Plan clearly, then move through one task at a time."
+                                },
+                                "children": []
+                              }
+                            ]
+                          },
+                          {
+                            "id": "main_status_badge",
+                            "type": "container",
+                            "properties": {
+                              "backgroundColor": 4280835407,
+                              "borderRadius": 14.0,
+                              "width": 150,
+                              "height": 46.0,
+                              "padding": 10
+                            },
+                            "children": [
+                              {
+                                "id": "align_66",
+                                "type": "align",
+                                "properties": {
+                                  "alignment": "center"
+                                },
+                                "children": [
+                                  {
+                                    "id": "main_status_text",
+                                    "type": "text",
+                                    "properties": {
+                                      "fontWeight": "bold",
+                                      "fontSize": 10.0,
+                                      "text": "LOCAL WORKSPACE",
+                                      "color": -1
+                                    },
+                                    "children": []
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      },
+                      {
+                        "id": "board_heading",
+                        "type": "row",
+                        "properties": {
+                          "marginBottom": 12.0,
+                          "crossAxisAlignment": "center",
+                          "mainAxisAlignment": "spaceBetween"
+                        },
+                        "children": [
+                          {
+                            "id": "board_title",
+                            "type": "text",
+                            "properties": {
+                              "fontWeight": "bold",
+                              "fontSize": 20.0,
+                              "color": 4280302130,
+                              "text": "All tasks"
+                            },
+                            "children": []
+                          },
+                          {
+                            "id": "board_hint",
+                            "type": "text",
+                            "properties": {
+                              "fontWeight": "bold",
+                              "fontSize": 9.0,
+                              "color": 4286091399,
+                              "text": "EDIT  /  COMPLETE  /  DELETE"
+                            },
+                            "children": []
+                          }
+                        ]
+                      },
+                      {
+                        "id": "expanded_tasks",
+                        "type": "expanded",
+                        "properties": {
+                          "flex": 1
+                        },
+                        "children": [
+                          {
+                            "id": "task_database_list",
+                            "type": "databaseList",
+                            "properties": {
+                              "emptyMessage": "No tasks yet. Add one from the workspace panel.",
+                              "itemSpacing": 12.0,
+                              "collectionId": "tasks",
+                              "scrollDirection": "vertical",
+                              "width": 800,
+                              "height": 420
+                            },
+                            "children": [
+                              {
+                                "id": "task_card",
+                                "type": "container",
+                                "properties": {
+                                  "backgroundColor": 4294967295,
+                                  "borderRadius": 18.0,
+                                  "width": 800,
+                                  "height": 112.0,
+                                  "padding": 12
+                                },
+                                "children": [
+                                  {
+                                    "id": "task_card_content",
+                                    "type": "row",
+                                    "properties": {
+                                      "crossAxisAlignment": "center",
+                                      "mainAxisAlignment": "spaceBetween"
+                                    },
+                                    "children": [
+                                      {
+                                        "id": "task_info_flex",
+                                        "type": "expanded",
+                                        "properties": {
+                                          "flex": 1
+                                        },
+                                        "children": [
+                                          {
+                                            "id": "task_info",
+                                            "type": "column",
+                                            "properties": {
+                                              "crossAxisAlignment": "start",
+                                              "mainAxisAlignment": "center"
+                                            },
+                                            "children": [
+                                              {
+                                                "id": "task_title",
+                                                "type": "text",
+                                                "properties": {
+                                                  "fontWeight": "bold",
+                                                  "fontSize": 17.0,
+                                                  "color": 4280302130,
+                                                  "text": "${record.title}"
+                                                },
+                                                "children": []
+                                              },
+                                              {
+                                                "id": "task_status_chip",
+                                                "type": "container",
+                                                "properties": {
+                                                  "borderRadius": 10.0,
+                                                  "marginTop": 6.0,
+                                                  "width": 76,
+                                                  "height": 36,
+                                                  "padding": 4,
+                                                  "backgroundColor": -1904665
+                                                },
+                                                "children": [
+                                                  {
+                                                    "id": "align_65",
+                                                    "type": "align",
+                                                    "properties": {
+                                                      "alignment": "center"
+                                                    },
+                                                    "children": [
+                                                      {
+                                                        "id": "task_status",
+                                                        "type": "text",
+                                                        "properties": {
+                                                          "fontWeight": "bold",
+                                                          "fontSize": 10.0,
+                                                          "text": "${record.status}",
+                                                          "color": -14395321
+                                                        },
+                                                        "children": []
+                                                      }
+                                                    ]
+                                                  }
+                                                ]
+                                              }
+                                            ]
+                                          }
+                                        ]
+                                      },
+                                      {
+                                        "id": "task_actions",
+                                        "type": "wrap",
+                                        "properties": {
+                                          "direction": "horizontal",
+                                          "spacing": 2.0,
+                                          "runSpacing": 2.0
+                                        },
+                                        "children": [
+                                          {
+                                            "id": "mark_done_button",
+                                            "type": "button",
+                                            "properties": {
+                                              "style": "text",
+                                              "actions": [
+                                                {
+                                                  "id": "mark_task_done",
+                                                  "type": "databaseUpdate",
+                                                  "collectionId": "tasks",
+                                                  "recordId": "${record._id}",
+                                                  "record": "{\"status\":\"Done\"}"
+                                                }
+                                              ],
+                                              "label": "Done"
+                                            },
+                                            "children": []
+                                          },
+                                          {
+                                            "id": "reopen_task_button",
+                                            "type": "button",
+                                            "properties": {
+                                              "style": "text",
+                                              "actions": [
+                                                {
+                                                  "id": "reopen_task",
+                                                  "type": "databaseUpdate",
+                                                  "collectionId": "tasks",
+                                                  "recordId": "${record._id}",
+                                                  "record": "{\"status\":\"Open\"}"
+                                                }
+                                              ],
+                                              "label": "Reopen"
+                                            },
+                                            "children": []
+                                          },
+                                          {
+                                            "id": "edit_task_button",
+                                            "type": "button",
+                                            "properties": {
+                                              "style": "text",
+                                              "actions": [
+                                                {
+                                                  "id": "select_task_id",
+                                                  "type": "setVariable",
+                                                  "variableId": "editing_task_id",
+                                                  "value": "${record._id}"
+                                                },
+                                                {
+                                                  "id": "select_task_title",
+                                                  "type": "setVariable",
+                                                  "variableId": "edit_task_title",
+                                                  "value": "${record.title}"
+                                                },
+                                                {
+                                                  "id": "show_edit_form",
+                                                  "type": "updateWidget",
+                                                  "targetPageId": "home",
+                                                  "targetNodeId": "edit_task_form",
+                                                  "property": "visible",
+                                                  "value": true
+                                                }
+                                              ],
+                                              "label": "Edit"
+                                            },
+                                            "children": []
+                                          },
+                                          {
+                                            "id": "remove_task_button",
+                                            "type": "button",
+                                            "properties": {
+                                              "style": "outlined",
+                                              "actions": [
+                                                {
+                                                  "id": "delete_task_record",
+                                                  "type": "databaseDelete",
+                                                  "collectionId": "tasks",
+                                                  "recordId": "${record._id}"
+                                                }
+                                              ],
+                                              "label": "Delete"
+                                            },
+                                            "children": []
+                                          }
+                                        ]
+                                      }
+                                    ]
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      },
+                      {
+                        "id": "board_footer",
+                        "type": "text",
+                        "properties": {
+                          "paddingTop": 10.0,
+                          "fontSize": 10.0,
+                          "color": 4286091399,
+                          "text": "Tasks are stored locally on this device."
+                        },
+                        "children": []
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "pages": [
+    {
+      "id": "home",
+      "name": "Home",
+      "route": "/",
+      "root": {
+        "id": "home_scaffold",
+        "type": "scaffold",
+        "properties": {},
+        "children": [
+          {
+            "id": "home_safe_area",
+            "type": "safeArea",
+            "properties": {
+              "top": true,
+              "bottom": true,
+              "right": true,
+              "left": true
+            },
+            "children": [
+              {
+                "id": "desktop_workspace",
+                "type": "row",
+                "properties": {
+                  "crossAxisAlignment": "stretch",
+                  "mainAxisAlignment": "start"
+                },
+                "children": [
+                  {
+                    "id": "sidebar_container",
+                    "type": "container",
+                    "properties": {
+                      "width": 250.0,
+                      "backgroundColor": 4294309887,
+                      "height": 700,
+                      "heightMode": "max"
+                    },
+                    "children": [
+                      {
+                        "id": "sidebar_scroll_view",
+                        "type": "singleChildScrollView",
+                        "properties": {
+                          "width": 250.0,
+                          "scrollDirection": "vertical",
+                          "reverse": false,
+                          "height": 700,
+                          "heightMode": "max"
+                        },
+                        "children": [
+                          {
+                            "id": "sidebar_content",
+                            "type": "column",
+                            "properties": {
+                              "paddingLeft": 18.0,
+                              "crossAxisAlignment": "stretch",
+                              "paddingRight": 18.0,
+                              "paddingBottom": 20.0,
+                              "mainAxisAlignment": "start",
+                              "paddingTop": 20.0
+                            },
+                            "children": [
+                              {
+                                "id": "brand_header",
+                                "type": "row",
+                                "properties": {
+                                  "marginBottom": 8.0,
+                                  "crossAxisAlignment": "center",
+                                  "mainAxisAlignment": "start"
+                                },
+                                "children": [
+                                  {
+                                    "id": "brand_mark",
+                                    "type": "container",
+                                    "properties": {
+                                      "height": 38.0,
+                                      "width": 38.0,
+                                      "alignment": "center",
+                                      "backgroundColor": 4280835407,
+                                      "borderRadius": 14.0
+                                    },
+                                    "children": [
+                                      {
+                                        "id": "brand_icon",
+                                        "type": "icon",
+                                        "properties": {
+                                          "iconName": "check",
+                                          "color": 4280840285,
+                                          "size": 21.0
+                                        },
+                                        "children": []
+                                      }
+                                    ]
+                                  },
+                                  {
+                                    "id": "brand_name",
+                                    "type": "text",
+                                    "properties": {
+                                      "marginLeft": 10.0,
+                                      "fontWeight": "bold",
+                                      "fontSize": 14.0,
+                                      "color": 4280302130,
+                                      "text": "DAYMARK"
+                                    },
+                                    "children": []
+                                  }
+                                ]
+                              },
+                              {
+                                "id": "brand_subtitle",
+                                "type": "text",
+                                "properties": {
+                                  "fontWeight": "bold",
+                                  "fontSize": 9.0,
+                                  "color": 4286091399,
+                                  "text": "PERSONAL TASK SPACE",
+                                  "marginBottom": 28.0
+                                },
+                                "children": []
+                              },
+                              {
+                                "id": "workspace_label",
+                                "type": "text",
+                                "properties": {
+                                  "fontWeight": "bold",
+                                  "fontSize": 9.0,
+                                  "color": 4286091399,
+                                  "text": "WORKSPACE",
+                                  "marginBottom": 10.0
+                                },
+                                "children": []
+                              },
+                              {
+                                "id": "active_nav_item",
+                                "type": "container",
+                                "properties": {
+                                  "backgroundColor": 4294967295,
+                                  "width": 210.0,
+                                  "padding": 12.0,
+                                  "borderRadius": 14.0,
+                                  "height": 60.0
+                                },
+                                "children": [
+                                  {
+                                    "id": "active_nav_row",
+                                    "type": "row",
+                                    "properties": {
+                                      "crossAxisAlignment": "center",
+                                      "mainAxisAlignment": "start"
+                                    },
+                                    "children": [
+                                      {
+                                        "id": "active_nav_icon",
+                                        "type": "icon",
+                                        "properties": {
+                                          "iconName": "check",
+                                          "color": 4280840285,
+                                          "size": 17.0
+                                        },
+                                        "children": []
+                                      },
+                                      {
+                                        "id": "active_nav_title",
+                                        "type": "text",
+                                        "properties": {
+                                          "marginLeft": 9.0,
+                                          "fontWeight": "bold",
+                                          "fontSize": 13.0,
+                                          "color": 4280302130,
+                                          "text": "My tasks"
+                                        },
+                                        "children": []
+                                      }
+                                    ]
+                                  }
+                                ]
+                              },
+                              {
+                                "id": "sidebar_note",
+                                "type": "container",
+                                "properties": {
+                                  "backgroundColor": 4280835407,
+                                  "width": 210.0,
+                                  "padding": 14.0,
+                                  "borderRadius": 16.0,
+                                  "marginTop": 18.0,
+                                  "height": 108
+                                },
+                                "children": [
+                                  {
+                                    "id": "sidebar_note_content",
+                                    "type": "column",
+                                    "properties": {
+                                      "crossAxisAlignment": "start",
+                                      "mainAxisAlignment": "start"
+                                    },
+                                    "children": [
+                                      {
+                                        "id": "sidebar_note_label",
+                                        "type": "text",
+                                        "properties": {
+                                          "fontWeight": "bold",
+                                          "fontSize": 9.0,
+                                          "color": 4291355606,
+                                          "text": "A CLEARER DAY",
+                                          "marginBottom": 5.0
+                                        },
+                                        "children": []
+                                      },
+                                      {
+                                        "id": "sidebar_note_body",
+                                        "type": "text",
+                                        "properties": {
+                                          "fontSize": 12.0,
+                                          "color": 4292997352,
+                                          "text": "Keep the next step visible. Small steps add up."
+                                        },
+                                        "children": []
+                                      }
+                                    ]
+                                  }
+                                ]
+                              },
+                              {
+                                "id": "add_task_card",
+                                "type": "container",
+                                "properties": {
+                                  "backgroundColor": 4294967295,
+                                  "width": 210.0,
+                                  "padding": 12.0,
+                                  "borderRadius": 16.0,
+                                  "marginTop": 26.0,
+                                  "height": 108
+                                },
+                                "children": [
+                                  {
+                                    "id": "add_task_content",
+                                    "type": "column",
+                                    "properties": {
+                                      "crossAxisAlignment": "stretch",
+                                      "mainAxisAlignment": "start"
+                                    },
+                                    "children": [
+                                      {
+                                        "id": "add_task_label",
+                                        "type": "text",
+                                        "properties": {
+                                          "fontWeight": "bold",
+                                          "fontSize": 10.0,
+                                          "color": 4286091399,
+                                          "text": "NEW TASK",
+                                          "marginBottom": 8.0
+                                        },
+                                        "children": []
+                                      },
+                                      {
+                                        "id": "add_task_controls",
+                                        "type": "row",
+                                        "properties": {
+                                          "crossAxisAlignment": "center",
+                                          "mainAxisAlignment": "start"
+                                        },
+                                        "children": [
+                                          {
+                                            "id": "new_task_field_flex",
+                                            "type": "expanded",
+                                            "properties": {
+                                              "flex": 1
+                                            },
+                                            "children": [
+                                              {
+                                                "id": "new_task_field",
+                                                "type": "textField",
+                                                "properties": {
+                                                  "inputVariableId": "new_task_title",
+                                                  "initialValue": "",
+                                                  "width": 108,
+                                                  "label": "",
+                                                  "hintText": "Add a task"
+                                                },
+                                                "children": []
+                                              }
+                                            ]
+                                          },
+                                          {
+                                            "id": "new_task_add_button",
+                                            "type": "iconButton",
+                                            "properties": {
+                                              "style": "filled",
+                                              "actions": [
+                                                {
+                                                  "id": "validate_new_task",
+                                                  "type": "conditional",
+                                                  "variableId": "new_task_title",
+                                                  "operator": "notEquals",
+                                                  "value": "",
+                                                  "thenActions": [
+                                                    {
+                                                      "id": "insert_task_record",
+                                                      "type": "databaseInsert",
+                                                      "collectionId": "tasks",
+                                                      "record": "{\"title\":\"$new_task_title\",\"status\":\"Open\"}"
+                                                    },
+                                                    {
+                                                      "id": "clear_new_task_title",
+                                                      "type": "setVariable",
+                                                      "variableId": "new_task_title",
+                                                      "value": ""
+                                                    }
+                                                  ],
+                                                  "elseActions": [
+                                                    {
+                                                      "id": "empty_task_message",
+                                                      "type": "snackbar",
+                                                      "message": "Write a task before adding it."
+                                                    }
+                                                  ]
+                                                }
+                                              ],
+                                              "iconName": "add",
+                                              "tooltip": "Add task"
+                                            },
+                                            "children": []
+                                          }
+                                        ]
+                                      }
+                                    ]
+                                  }
+                                ]
+                              },
+                              {
+                                "id": "edit_task_form",
+                                "type": "container",
+                                "properties": {
+                                  "marginTop": 14.0,
+                                  "padding": 12.0,
+                                  "width": 210.0,
+                                  "visible": false,
+                                  "borderRadius": 16.0,
+                                  "backgroundColor": 4294967295,
+                                  "height": 148
+                                },
+                                "children": [
+                                  {
+                                    "id": "edit_task_content",
+                                    "type": "column",
+                                    "properties": {
+                                      "crossAxisAlignment": "stretch",
+                                      "mainAxisAlignment": "start"
+                                    },
+                                    "children": [
+                                      {
+                                        "id": "edit_task_label",
+                                        "type": "text",
+                                        "properties": {
+                                          "fontWeight": "bold",
+                                          "fontSize": 10.0,
+                                          "color": 4286091399,
+                                          "text": "EDIT TASK",
+                                          "marginBottom": 8.0
+                                        },
+                                        "children": []
+                                      },
+                                      {
+                                        "id": "edit_task_title_field",
+                                        "type": "textField",
+                                        "properties": {
+                                          "inputVariableId": "edit_task_title",
+                                          "width": 184.0,
+                                          "hintText": "Update this task",
+                                          "initialValue": "",
+                                          "label": "Task title"
+                                        },
+                                        "children": []
+                                      },
+                                      {
+                                        "id": "edit_task_actions",
+                                        "type": "wrap",
+                                        "properties": {
+                                          "direction": "horizontal",
+                                          "spacing": 4.0,
+                                          "runSpacing": 4.0
+                                        },
+                                        "children": [
+                                          {
+                                            "id": "save_task_edit_button",
+                                            "type": "button",
+                                            "properties": {
+                                              "style": "filledTonal",
+                                              "actions": [
+                                                {
+                                                  "id": "validate_task_edit",
+                                                  "type": "conditional",
+                                                  "variableId": "edit_task_title",
+                                                  "operator": "notEquals",
+                                                  "value": "",
+                                                  "thenActions": [
+                                                    {
+                                                      "id": "update_task_title",
+                                                      "type": "databaseUpdate",
+                                                      "collectionId": "tasks",
+                                                      "recordId": "$editing_task_id",
+                                                      "record": "{\"title\":\"$edit_task_title\"}"
+                                                    },
+                                                    {
+                                                      "id": "clear_edit_title",
+                                                      "type": "setVariable",
+                                                      "variableId": "edit_task_title",
+                                                      "value": ""
+                                                    },
+                                                    {
+                                                      "id": "clear_edit_id",
+                                                      "type": "setVariable",
+                                                      "variableId": "editing_task_id",
+                                                      "value": ""
+                                                    },
+                                                    {
+                                                      "id": "hide_edit_form",
+                                                      "type": "updateWidget",
+                                                      "targetPageId": "home",
+                                                      "targetNodeId": "edit_task_form",
+                                                      "property": "visible",
+                                                      "value": false
+                                                    }
+                                                  ],
+                                                  "elseActions": [
+                                                    {
+                                                      "id": "empty_edit_message",
+                                                      "type": "snackbar",
+                                                      "message": "Enter a task title."
+                                                    }
+                                                  ]
+                                                }
+                                              ],
+                                              "label": "Save"
+                                            },
+                                            "children": []
+                                          },
+                                          {
+                                            "id": "cancel_task_edit_button",
+                                            "type": "button",
+                                            "properties": {
+                                              "style": "text",
+                                              "actions": [
+                                                {
+                                                  "id": "cancel_edit_title",
+                                                  "type": "setVariable",
+                                                  "variableId": "edit_task_title",
+                                                  "value": ""
+                                                },
+                                                {
+                                                  "id": "cancel_edit_id",
+                                                  "type": "setVariable",
+                                                  "variableId": "editing_task_id",
+                                                  "value": ""
+                                                },
+                                                {
+                                                  "id": "cancel_hide_edit_form",
+                                                  "type": "updateWidget",
+                                                  "targetPageId": "home",
+                                                  "targetNodeId": "edit_task_form",
+                                                  "property": "visible",
+                                                  "value": false
+                                                }
+                                              ],
+                                              "label": "Cancel"
+                                            },
+                                            "children": []
+                                          }
+                                        ]
+                                      }
+                                    ]
+                                  }
+                                ]
+                              },
+                              {
+                                "id": "sidebar_spacer",
+                                "type": "sizedBox",
+                                "properties": {
+                                  "width": 1.0,
+                                  "height": 24.0
+                                },
+                                "children": []
+                              },
+                              {
+                                "id": "sidebar_footer",
+                                "type": "text",
+                                "properties": {
+                                  "fontWeight": "bold",
+                                  "fontSize": 9.0,
+                                  "color": 4286091399,
+                                  "text": "SAVED LOCALLY"
+                                },
+                                "children": []
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "id": "main_panel_flex",
+                    "type": "expanded",
+                    "properties": {
+                      "flex": 1
+                    },
+                    "children": [
+                      {
+                        "id": "main_panel",
+                        "type": "column",
+                        "properties": {
+                          "paddingLeft": 34.0,
+                          "crossAxisAlignment": "stretch",
+                          "paddingRight": 34.0,
+                          "paddingBottom": 20.0,
+                          "mainAxisAlignment": "start",
+                          "paddingTop": 28.0
+                        },
+                        "children": [
+                          {
+                            "id": "main_header",
+                            "type": "row",
+                            "properties": {
+                              "marginBottom": 28.0,
+                              "crossAxisAlignment": "center",
+                              "mainAxisAlignment": "spaceBetween"
+                            },
+                            "children": [
+                              {
+                                "id": "main_heading_group",
+                                "type": "column",
+                                "properties": {
+                                  "crossAxisAlignment": "start",
+                                  "mainAxisAlignment": "start"
+                                },
+                                "children": [
+                                  {
+                                    "id": "main_eyebrow",
+                                    "type": "text",
+                                    "properties": {
+                                      "fontWeight": "bold",
+                                      "fontSize": 10.0,
+                                      "color": 4286091399,
+                                      "text": "DAYMARK / TODAY",
+                                      "marginBottom": 5.0
+                                    },
+                                    "children": []
+                                  },
+                                  {
+                                    "id": "main_title",
+                                    "type": "text",
+                                    "properties": {
+                                      "fontWeight": "bold",
+                                      "fontSize": 30.0,
+                                      "color": 4280302130,
+                                      "text": "Your task board"
+                                    },
+                                    "children": []
+                                  },
+                                  {
+                                    "id": "main_subtitle",
+                                    "type": "text",
+                                    "properties": {
+                                      "fontSize": 14.0,
+                                      "color": 4285431928,
+                                      "text": "Plan clearly, then move through one task at a time."
+                                    },
+                                    "children": []
+                                  }
+                                ]
+                              },
+                              {
+                                "id": "main_status_badge",
+                                "type": "container",
+                                "properties": {
+                                  "backgroundColor": 4280835407,
+                                  "borderRadius": 14.0,
+                                  "width": 150,
+                                  "height": 46.0,
+                                  "padding": 10
+                                },
+                                "children": [
+                                  {
+                                    "id": "align_66",
+                                    "type": "align",
+                                    "properties": {
+                                      "alignment": "center"
+                                    },
+                                    "children": [
+                                      {
+                                        "id": "main_status_text",
+                                        "type": "text",
+                                        "properties": {
+                                          "fontWeight": "bold",
+                                          "fontSize": 10.0,
+                                          "text": "LOCAL WORKSPACE",
+                                          "color": -1
+                                        },
+                                        "children": []
+                                      }
+                                    ]
+                                  }
+                                ]
+                              }
+                            ]
+                          },
+                          {
+                            "id": "board_heading",
+                            "type": "row",
+                            "properties": {
+                              "marginBottom": 12.0,
+                              "crossAxisAlignment": "center",
+                              "mainAxisAlignment": "spaceBetween"
+                            },
+                            "children": [
+                              {
+                                "id": "board_title",
+                                "type": "text",
+                                "properties": {
+                                  "fontWeight": "bold",
+                                  "fontSize": 20.0,
+                                  "color": 4280302130,
+                                  "text": "All tasks"
+                                },
+                                "children": []
+                              },
+                              {
+                                "id": "board_hint",
+                                "type": "text",
+                                "properties": {
+                                  "fontWeight": "bold",
+                                  "fontSize": 9.0,
+                                  "color": 4286091399,
+                                  "text": "EDIT  /  COMPLETE  /  DELETE"
+                                },
+                                "children": []
+                              }
+                            ]
+                          },
+                          {
+                            "id": "expanded_tasks",
+                            "type": "expanded",
+                            "properties": {
+                              "flex": 1
+                            },
+                            "children": [
+                              {
+                                "id": "task_database_list",
+                                "type": "databaseList",
+                                "properties": {
+                                  "emptyMessage": "No tasks yet. Add one from the workspace panel.",
+                                  "itemSpacing": 12.0,
+                                  "collectionId": "tasks",
+                                  "scrollDirection": "vertical",
+                                  "width": 800,
+                                  "height": 420
+                                },
+                                "children": [
+                                  {
+                                    "id": "task_card",
+                                    "type": "container",
+                                    "properties": {
+                                      "backgroundColor": 4294967295,
+                                      "borderRadius": 18.0,
+                                      "width": 800,
+                                      "height": 112.0,
+                                      "padding": 12
+                                    },
+                                    "children": [
+                                      {
+                                        "id": "task_card_content",
+                                        "type": "row",
+                                        "properties": {
+                                          "crossAxisAlignment": "center",
+                                          "mainAxisAlignment": "spaceBetween"
+                                        },
+                                        "children": [
+                                          {
+                                            "id": "task_info_flex",
+                                            "type": "expanded",
+                                            "properties": {
+                                              "flex": 1
+                                            },
+                                            "children": [
+                                              {
+                                                "id": "task_info",
+                                                "type": "column",
+                                                "properties": {
+                                                  "crossAxisAlignment": "start",
+                                                  "mainAxisAlignment": "center"
+                                                },
+                                                "children": [
+                                                  {
+                                                    "id": "task_title",
+                                                    "type": "text",
+                                                    "properties": {
+                                                      "fontWeight": "bold",
+                                                      "fontSize": 17.0,
+                                                      "color": 4280302130,
+                                                      "text": "${record.title}"
+                                                    },
+                                                    "children": []
+                                                  },
+                                                  {
+                                                    "id": "task_status_chip",
+                                                    "type": "container",
+                                                    "properties": {
+                                                      "borderRadius": 10.0,
+                                                      "marginTop": 6.0,
+                                                      "width": 76,
+                                                      "height": 36,
+                                                      "padding": 4,
+                                                      "backgroundColor": -1904665
+                                                    },
+                                                    "children": [
+                                                      {
+                                                        "id": "align_65",
+                                                        "type": "align",
+                                                        "properties": {
+                                                          "alignment": "center"
+                                                        },
+                                                        "children": [
+                                                          {
+                                                            "id": "task_status",
+                                                            "type": "text",
+                                                            "properties": {
+                                                              "fontWeight": "bold",
+                                                              "fontSize": 10.0,
+                                                              "text": "${record.status}",
+                                                              "color": -14395321
+                                                            },
+                                                            "children": []
+                                                          }
+                                                        ]
+                                                      }
+                                                    ]
+                                                  }
+                                                ]
+                                              }
+                                            ]
+                                          },
+                                          {
+                                            "id": "task_actions",
+                                            "type": "wrap",
+                                            "properties": {
+                                              "direction": "horizontal",
+                                              "spacing": 2.0,
+                                              "runSpacing": 2.0
+                                            },
+                                            "children": [
+                                              {
+                                                "id": "mark_done_button",
+                                                "type": "button",
+                                                "properties": {
+                                                  "style": "text",
+                                                  "actions": [
+                                                    {
+                                                      "id": "mark_task_done",
+                                                      "type": "databaseUpdate",
+                                                      "collectionId": "tasks",
+                                                      "recordId": "${record._id}",
+                                                      "record": "{\"status\":\"Done\"}"
+                                                    }
+                                                  ],
+                                                  "label": "Done"
+                                                },
+                                                "children": []
+                                              },
+                                              {
+                                                "id": "reopen_task_button",
+                                                "type": "button",
+                                                "properties": {
+                                                  "style": "text",
+                                                  "actions": [
+                                                    {
+                                                      "id": "reopen_task",
+                                                      "type": "databaseUpdate",
+                                                      "collectionId": "tasks",
+                                                      "recordId": "${record._id}",
+                                                      "record": "{\"status\":\"Open\"}"
+                                                    }
+                                                  ],
+                                                  "label": "Reopen"
+                                                },
+                                                "children": []
+                                              },
+                                              {
+                                                "id": "edit_task_button",
+                                                "type": "button",
+                                                "properties": {
+                                                  "style": "text",
+                                                  "actions": [
+                                                    {
+                                                      "id": "select_task_id",
+                                                      "type": "setVariable",
+                                                      "variableId": "editing_task_id",
+                                                      "value": "${record._id}"
+                                                    },
+                                                    {
+                                                      "id": "select_task_title",
+                                                      "type": "setVariable",
+                                                      "variableId": "edit_task_title",
+                                                      "value": "${record.title}"
+                                                    },
+                                                    {
+                                                      "id": "show_edit_form",
+                                                      "type": "updateWidget",
+                                                      "targetPageId": "home",
+                                                      "targetNodeId": "edit_task_form",
+                                                      "property": "visible",
+                                                      "value": true
+                                                    }
+                                                  ],
+                                                  "label": "Edit"
+                                                },
+                                                "children": []
+                                              },
+                                              {
+                                                "id": "remove_task_button",
+                                                "type": "button",
+                                                "properties": {
+                                                  "style": "outlined",
+                                                  "actions": [
+                                                    {
+                                                      "id": "delete_task_record",
+                                                      "type": "databaseDelete",
+                                                      "collectionId": "tasks",
+                                                      "recordId": "${record._id}"
+                                                    }
+                                                  ],
+                                                  "label": "Delete"
+                                                },
+                                                "children": []
+                                              }
+                                            ]
+                                          }
+                                        ]
+                                      }
+                                    ]
+                                  }
+                                ]
+                              }
+                            ]
+                          },
+                          {
+                            "id": "board_footer",
+                            "type": "text",
+                            "properties": {
+                              "paddingTop": 10.0,
+                              "fontSize": 10.0,
+                              "color": 4286091399,
+                              "text": "Tasks are stored locally on this device."
+                            },
+                            "children": []
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "variables": [
+    {
+      "id": "new_task_title",
+      "name": "New task title",
+      "type": "string",
+      "initialValue": ""
+    },
+    {
+      "id": "editing_task_id",
+      "name": "Editing task ID",
+      "type": "string",
+      "initialValue": ""
+    },
+    {
+      "id": "edit_task_title",
+      "name": "Edit task title",
+      "type": "string",
+      "initialValue": ""
+    }
+  ],
+  "customFunctions": [],
+  "customDataStructures": [],
+  "componentGroups": [],
+  "databaseCollections": [
+    {
+      "id": "tasks",
+      "name": "Tasks",
+      "fields": [
+        {
+          "id": "title",
+          "name": "Title",
+          "type": "string",
+          "required": true,
+          "primaryKey": false,
+          "unique": false
+        },
+        {
+          "id": "status",
+          "name": "Status",
+          "type": "string",
+          "required": true,
+          "primaryKey": false,
+          "unique": false
+        }
+      ],
+      "seedRecords": [
+        {
+          "title": "Send the project update",
+          "status": "Open"
+        },
+        {
+          "title": "Prep for the weekly check-in",
+          "status": "Open"
+        },
+        {
+          "title": "Pick up a few groceries",
+          "status": "Open"
+        }
+      ]
+    }
+  ],
+  "databaseRelationships": [],
+  "fontAssets": [],
+  "initialPageId": "home"
+}

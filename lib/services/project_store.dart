@@ -79,9 +79,7 @@ class ProjectStore {
         'The selected file is not a builder project.',
       );
     }
-    return BuilderDocument.fromJson(
-      Map<String, Object?>.from(decoded),
-    );
+    return BuilderDocument.fromJson(Map<String, Object?>.from(decoded));
   }
 
   Future<String> saveProject(BuilderDocument document, String path) async {
@@ -120,10 +118,7 @@ class ProjectStore {
       if (await temp.exists()) await temp.delete();
       rethrow;
     }
-    return StoredProject(
-      document: portableDocument,
-      path: target.path,
-    );
+    return StoredProject(document: portableDocument, path: target.path);
   }
 
   Future<void> clearAutosave(String projectPath) async {
@@ -136,10 +131,12 @@ class ProjectStore {
     File projectFile,
   ) async {
     final String projectStem = _safeAssetName(
-      _fileName(projectFile.path).replaceFirst(
-        RegExp(r'\.appbuilder\.json$', caseSensitive: false),
-        '',
-      ).replaceFirst(RegExp(r'\.json$', caseSensitive: false), ''),
+      _fileName(projectFile.path)
+          .replaceFirst(
+            RegExp(r'\.appbuilder\.json$', caseSensitive: false),
+            '',
+          )
+          .replaceFirst(RegExp(r'\.json$', caseSensitive: false), ''),
     );
     final String assetDirectoryName = '${projectStem}_assets';
 
@@ -164,10 +161,11 @@ class ProjectStore {
           final String fileName = _safeAssetName(_fileName(source));
           final String relativePath =
               '$assetDirectoryName/images/${_safeAssetName(namespace)}_${_safeAssetName(node.id)}_$fileName';
-          final File destination = File(
-            '${projectFile.parent.path}${Platform.pathSeparator}'
-            '${relativePath.replaceAll('/', Platform.pathSeparator)}',
-          ).absolute;
+          final File destination =
+              File(
+                '${projectFile.parent.path}${Platform.pathSeparator}'
+                '${relativePath.replaceAll('/', Platform.pathSeparator)}',
+              ).absolute;
           final String sourcePath = _normalizedPath(sourceFile.absolute.path);
           final String destinationPath = _normalizedPath(destination.path);
           if (sourcePath != destinationPath) {
@@ -186,22 +184,52 @@ class ProjectStore {
     final BuilderNode root = await copyNode(document.root, 'home');
     final List<BuilderPage> pages = await Future.wait(
       document.pages.map(
-        (BuilderPage page) async => page.copyWith(
-          root: await copyNode(page.root, page.id),
-        ),
+        (BuilderPage page) async =>
+            page.copyWith(root: await copyNode(page.root, page.id)),
       ),
     );
     final List<BuilderComponentGroup> componentGroups = await Future.wait(
       document.componentGroups.map(
-        (BuilderComponentGroup group) async => group.copyWith(
-          root: await copyNode(group.root, group.id),
-        ),
+        (BuilderComponentGroup group) async =>
+            group.copyWith(root: await copyNode(group.root, group.id)),
       ),
+    );
+    final List<BuilderFontAsset> fontAssets = await Future.wait(
+      document.fontAssets.map((BuilderFontAsset font) async {
+        final File source = File(
+          resolveProjectAssetPath(projectFile.path, font.source),
+        );
+        if (!await source.exists()) {
+          throw FileSystemException(
+            'A bundled font could not be found. Import it again before saving.',
+            font.source,
+          );
+        }
+        final String relativePath =
+            '$assetDirectoryName/fonts/${_safeAssetName(font.family)}_${_safeAssetName(_fileName(font.source))}';
+        final File destination =
+            File(
+              '${projectFile.parent.path}${Platform.pathSeparator}'
+              '${relativePath.replaceAll('/', Platform.pathSeparator)}',
+            ).absolute;
+        if (_normalizedPath(source.absolute.path) !=
+            _normalizedPath(destination.path)) {
+          await destination.parent.create(recursive: true);
+          await source.copy(destination.path);
+        }
+        return BuilderFontAsset(
+          id: font.id,
+          family: font.family,
+          source: relativePath,
+          weight: font.weight,
+        );
+      }),
     );
     return document.copyWith(
       root: root,
       pages: pages,
       componentGroups: componentGroups,
+      fontAssets: fontAssets,
     );
   }
 

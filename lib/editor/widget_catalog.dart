@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../models/builder_widget_definition.dart';
+
 enum WidgetCategory { layout, base, form, page }
 
 class WidgetCatalogItem {
@@ -9,6 +11,11 @@ class WidgetCatalogItem {
   final String label;
   final IconData icon;
   final WidgetCategory category;
+
+  BuilderWidgetDefinition? get definition => builderWidgetDefinitionFor(type);
+
+  Map<String, Object?> get defaultProperties =>
+      defaultBuilderWidgetProperties(type);
 
   String get keywords => '$type $label ${category.name}';
 }
@@ -57,6 +64,18 @@ const List<WidgetCatalogItem> widgetCatalog = <WidgetCatalogItem>[
     WidgetCategory.layout,
   ),
   WidgetCatalogItem(
+    'databaseList',
+    'Database List',
+    Icons.storage_outlined,
+    WidgetCategory.layout,
+  ),
+  WidgetCatalogItem(
+    'singleChildScrollView',
+    'Scroll View',
+    Icons.swap_vert,
+    WidgetCategory.layout,
+  ),
+  WidgetCatalogItem(
     'gridView',
     'GridView',
     Icons.grid_view_outlined,
@@ -84,6 +103,54 @@ const List<WidgetCatalogItem> widgetCatalog = <WidgetCatalogItem>[
     'padding',
     'Padding',
     Icons.padding_outlined,
+    WidgetCategory.layout,
+  ),
+  WidgetCatalogItem(
+    'center',
+    'Center',
+    Icons.filter_center_focus,
+    WidgetCategory.layout,
+  ),
+  WidgetCatalogItem(
+    'align',
+    'Align',
+    Icons.format_align_center,
+    WidgetCategory.layout,
+  ),
+  WidgetCatalogItem(
+    'wrap',
+    'Wrap',
+    Icons.wrap_text,
+    WidgetCategory.layout,
+  ),
+  WidgetCatalogItem(
+    'sizedBox',
+    'Sized Box',
+    Icons.open_in_full,
+    WidgetCategory.layout,
+  ),
+  WidgetCatalogItem(
+    'aspectRatio',
+    'Aspect Ratio',
+    Icons.aspect_ratio,
+    WidgetCategory.layout,
+  ),
+  WidgetCatalogItem(
+    'clipRRect',
+    'Clip RRect',
+    Icons.rounded_corner,
+    WidgetCategory.layout,
+  ),
+  WidgetCatalogItem(
+    'flexible',
+    'Flexible',
+    Icons.fit_screen,
+    WidgetCategory.layout,
+  ),
+  WidgetCatalogItem(
+    'spacer',
+    'Spacer',
+    Icons.space_bar,
     WidgetCategory.layout,
   ),
   WidgetCatalogItem('text', 'Text', Icons.text_fields, WidgetCategory.base),

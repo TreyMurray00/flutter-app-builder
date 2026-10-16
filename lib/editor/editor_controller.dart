@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 
 import '../models/builder_document.dart';
+import '../models/builder_widget_definition.dart';
 
 class EditorController extends ChangeNotifier {
   EditorController() {
@@ -13,6 +14,9 @@ class EditorController extends ChangeNotifier {
   BuilderDocument _document = BuilderDocument.sample();
   final List<BuilderDocument> _undoStack = <BuilderDocument>[];
   final List<BuilderDocument> _redoStack = <BuilderDocument>[];
+  static const Duration _editMergeWindow = Duration(milliseconds: 900);
+  DateTime? _lastEditAt;
+  String? _lastEditKey;
   final List<String> _previewPageStack = <String>[];
   final Map<String, Object?> _appVariableValues = <String, Object?>{};
   final Map<String, Map<String, Object?>> _widgetOverrides =
@@ -26,6 +30,7 @@ class EditorController extends ChangeNotifier {
   String _selectedNodeId = 'text_1';
   String _activePageId = 'home';
   bool _isDirty = false;
+  BuilderNode? _copiedNode;
 
   BuilderDocument get document => _document;
   List<BuilderPage> get pages => _document.allPages;
@@ -39,6 +44,8 @@ class EditorController extends ChangeNotifier {
   bool get isDirty => _isDirty;
   bool get canUndo => _undoStack.isNotEmpty;
   bool get canRedo => _redoStack.isNotEmpty;
+  int get runtimeRevision => _runtimeRevision;
+  int _runtimeRevision = 0;
   BuilderNode? get selectedNode => activeRoot.findById(_selectedNodeId);
   Map<String, Object?> get appVariableValues =>
       Map<String, Object?>.unmodifiable(_appVariableValues);
@@ -49,6 +56,21 @@ class EditorController extends ChangeNotifier {
               MapEntry<String, Map<String, Object?>>(
                 key,
                 Map<String, Object?>.unmodifiable(value),
+              ),
+        ),
+      );
+  Map<String, List<Map<String, Object?>>> get previewDatabaseRecords =>
+      Map<String, List<Map<String, Object?>>>.unmodifiable(
+        _previewDatabase.map(
+          (String collectionId, List<Map<String, Object?>> rows) =>
+              MapEntry<String, List<Map<String, Object?>>>(
+                collectionId,
+                List<Map<String, Object?>>.unmodifiable(
+                  rows.map(
+                    (Map<String, Object?> row) =>
+                        Map<String, Object?>.unmodifiable(row),
+                  ),
+                ),
               ),
         ),
       );
@@ -210,6 +232,7 @@ class EditorController extends ChangeNotifier {
     final Object next = _coerceVariableValue(variable.type, value);
     if (_appVariableValues[id] == next) return;
     _appVariableValues[id] = next;
+    _runtimeRevision++;
     notifyListeners();
   }
 
@@ -262,6 +285,7 @@ class EditorController extends ChangeNotifier {
     };
     if (overrides[property] == normalized) return;
     overrides[property] = normalized;
+    _runtimeRevision++;
     notifyListeners();
   }
 
@@ -373,7 +397,91 @@ class EditorController extends ChangeNotifier {
           );
         }),
       ),
+      historyKey: 'property:$nodeId:${changed.keys.toList()..sort()}',
     );
+  }
+
+  String? copySelected() {
+    final BuilderNode? selected = activeRoot.findById(_selectedNodeId);
+    if (selected == null || selected.id == activeRoot.id) return null;
+    _copiedNode = selected;
+    return jsonEncode(selected.toJson());
+  }
+
+  void pasteNodeJson(String json) {
+    try {
+      final Object? decoded = jsonDecode(json);
+      if (decoded is! Map) return;
+      final BuilderNode source = BuilderNode.fromJson(
+        Map<String, Object?>.from(decoded),
+      );
+      _insertClonedNode(source, afterSelected: false);
+    } on FormatException {
+      // Ignore clipboard data that is not a builder widget subtree.
+    } on TypeError {
+      // Ignore malformed clipboard data without changing the document.
+    }
+  }
+
+  void pasteCopied() {
+    final BuilderNode? copied = _copiedNode;
+    if (copied != null) _insertClonedNode(copied, afterSelected: false);
+  }
+
+  void duplicateSelected() {
+    final BuilderNode? selected = activeRoot.findById(_selectedNodeId);
+    if (selected == null || selected.id == activeRoot.id) return;
+    _insertClonedNode(selected, afterSelected: true);
+  }
+
+  void moveSelection(int offset) {
+    final List<BuilderNode> nodes = activeRoot.depthFirst().toList();
+    final int index = nodes.indexWhere(
+      (BuilderNode node) => node.id == _selectedNodeId,
+    );
+    final int next = (index + offset).clamp(0, nodes.length - 1);
+    if (index >= 0 && next != index) selectNode(nodes[next].id);
+  }
+
+  void _insertClonedNode(BuilderNode source, {required bool afterSelected}) {
+    final BuilderNode? selected = activeRoot.findById(_selectedNodeId);
+    if (selected == null || (afterSelected && selected.id == activeRoot.id)) {
+      return;
+    }
+    final BuilderNode? parent =
+        afterSelected
+            ? activeRoot.parentOfId(selected.id)
+            : selected.acceptsChildren
+            ? selected
+            : activeRoot.parentOfId(selected.id) ?? _insertionParent();
+    if (parent == null || !parent.canAcceptChildType(source.type)) return;
+
+    final Set<String> ids =
+        activeRoot.depthFirst().map((BuilderNode node) => node.id).toSet();
+    int serial = 1;
+    String nextId(String type) {
+      String candidate;
+      do {
+        candidate = '${type}_copy_$serial';
+        serial++;
+      } while (ids.contains(candidate));
+      ids.add(candidate);
+      return candidate;
+    }
+
+    final Map<String, String> idMap = <String, String>{
+      for (final BuilderNode node in source.depthFirst())
+        node.id: nextId(node.type),
+    };
+    final BuilderNode copy = _cloneComponentGroupNode(source, idMap);
+    BuilderNode nextRoot = activeRoot.appendToId(parent.id, copy);
+    if (afterSelected) {
+      nextRoot =
+          nextRoot.moveNode(copy.id, selected.id, BuilderDropPosition.after) ??
+          nextRoot;
+    }
+    _selectedNodeId = copy.id;
+    _commit(_copyWithActiveRoot(nextRoot));
   }
 
   void setCustomFunctions(List<BuilderCustomFunction> functions) {
@@ -413,6 +521,41 @@ class EditorController extends ChangeNotifier {
     _commit(_document.copyWith(appTheme: theme));
   }
 
+  void addFontAsset(BuilderFontAsset font) {
+    final List<BuilderFontAsset> next = <BuilderFontAsset>[
+      ..._document.fontAssets.where(
+        (BuilderFontAsset item) => item.id != font.id,
+      ),
+      font,
+    ];
+    _commit(_document.copyWith(fontAssets: next));
+  }
+
+  void removeFontAsset(String id) {
+    BuilderFontAsset? removed;
+    for (final BuilderFontAsset font in _document.fontAssets) {
+      if (font.id == id) removed = font;
+    }
+    if (removed == null) return;
+    final List<BuilderFontAsset> remaining =
+        _document.fontAssets
+            .where((BuilderFontAsset font) => font.id != id)
+            .toList();
+    final String selectedFamily = _document.appTheme.fontFamily;
+    final bool selectedStillBundled = remaining.any(
+      (BuilderFontAsset font) => font.family == selectedFamily,
+    );
+    _commit(
+      _document.copyWith(
+        fontAssets: remaining,
+        appTheme:
+            removed.family == selectedFamily && !selectedStillBundled
+                ? _document.appTheme.copyWith(fontFamily: '')
+                : _document.appTheme,
+      ),
+    );
+  }
+
   void setDatabaseCollections(List<BuilderDatabaseCollection> collections) {
     final String current = jsonEncode(
       _document.databaseCollections
@@ -425,10 +568,40 @@ class EditorController extends ChangeNotifier {
           .toList(),
     );
     if (current == next) return;
+    final Set<String> collectionIds =
+        collections.map((BuilderDatabaseCollection item) => item.id).toSet();
+    final List<BuilderDatabaseRelationship> relationships =
+        _document.databaseRelationships
+            .where(
+              (BuilderDatabaseRelationship relationship) =>
+                  collectionIds.contains(relationship.fromCollectionId) &&
+                  collectionIds.contains(relationship.toCollectionId),
+            )
+            .toList();
     _commit(
-      _document.copyWith(databaseCollections: collections),
+      _document.copyWith(
+        databaseCollections: collections,
+        databaseRelationships: relationships,
+      ),
       resetDatabase: true,
     );
+  }
+
+  void setDatabaseRelationships(
+    List<BuilderDatabaseRelationship> relationships,
+  ) {
+    final String current = jsonEncode(
+      _document.databaseRelationships
+          .map((BuilderDatabaseRelationship item) => item.toJson())
+          .toList(),
+    );
+    final String next = jsonEncode(
+      relationships
+          .map((BuilderDatabaseRelationship item) => item.toJson())
+          .toList(),
+    );
+    if (current == next) return;
+    _commit(_document.copyWith(databaseRelationships: relationships));
   }
 
   int? insertDatabaseRecord(String collectionId, Map<String, Object?> record) {
@@ -437,16 +610,276 @@ class EditorController extends ChangeNotifier {
     final int id = _nextDatabaseId[collectionId] ?? 1;
     _nextDatabaseId[collectionId] = id + 1;
     rows.add(<String, Object?>{...record, '_id': id});
+    _runtimeRevision++;
     notifyListeners();
     return id;
   }
 
-  List<Map<String, Object?>> queryDatabaseRecords(String collectionId) =>
-      List<Map<String, Object?>>.unmodifiable(
-        (_previewDatabase[collectionId] ?? <Map<String, Object?>>[]).map(
-          (Map<String, Object?> row) => Map<String, Object?>.unmodifiable(row),
+  bool updateDatabaseRecord(
+    String collectionId,
+    Object? id,
+    Map<String, Object?> values,
+  ) {
+    final List<Map<String, Object?>>? rows = _previewDatabase[collectionId];
+    final int? recordId = int.tryParse(id?.toString() ?? '');
+    if (rows == null || recordId == null) return false;
+    final int index = rows.indexWhere(
+      (Map<String, Object?> row) => row['_id'] == recordId,
+    );
+    if (index < 0) return false;
+    rows[index] = <String, Object?>{
+      ...rows[index],
+      ...values,
+      '_id': recordId,
+    };
+    _runtimeRevision++;
+    notifyListeners();
+    return true;
+  }
+
+  List<Map<String, Object?>> queryDatabaseRecords(
+    String collectionId, {
+    List<Map<String, Object?>> joins = const <Map<String, Object?>>[],
+    List<Map<String, Object?>> filters = const <Map<String, Object?>>[],
+    bool matchAny = false,
+    String? sortField,
+    String? sortAlias,
+    String sortAggregate = 'min',
+    bool descending = false,
+    int limit = 0,
+  }) {
+    final List<Map<String, Object?>> rows = <Map<String, Object?>>[];
+    for (final Map<String, Object?> baseRow
+        in _previewDatabase[collectionId] ?? <Map<String, Object?>>[]) {
+      final Map<String, Object?> row = <String, Object?>{...baseRow};
+      bool include = true;
+      for (final Map<String, Object?> join in joins) {
+        final String alias = join['alias']?.toString() ?? '';
+        final String relatedCollectionId =
+            join['relatedCollectionId']?.toString() ?? '';
+        final String baseFieldId = join['baseFieldId']?.toString() ?? '';
+        final String relatedFieldId = join['relatedFieldId']?.toString() ?? '';
+        final Object? key = baseRow[baseFieldId];
+        final List<Map<String, Object?>> matches =
+            (_previewDatabase[relatedCollectionId] ?? <Map<String, Object?>>[])
+                .where((Map<String, Object?> related) {
+                  final Object? relatedKey = related[relatedFieldId];
+                  return key != null && _databaseValuesEqual(key, relatedKey);
+                })
+                .map(
+                  (Map<String, Object?> related) => <String, Object?>{
+                    ...related,
+                  },
+                )
+                .toList();
+        if (join['joinType'] == 'inner' && matches.isEmpty) {
+          include = false;
+          break;
+        }
+        row[alias] =
+            join['many'] == true
+                ? matches
+                : matches.isEmpty
+                ? null
+                : matches.first;
+      }
+      if (include && _matchesDatabaseQuery(row, filters, matchAny)) {
+        rows.add(row);
+      }
+    }
+    if (sortField != null && sortField.isNotEmpty) {
+      rows.sort((Map<String, Object?> left, Map<String, Object?> right) {
+        final Object? leftValue = _databaseSortValue(
+          left,
+          sortAlias,
+          sortField,
+          sortAggregate,
+        );
+        final Object? rightValue = _databaseSortValue(
+          right,
+          sortAlias,
+          sortField,
+          sortAggregate,
+        );
+        final int order = _compareDatabaseValues(leftValue, rightValue);
+        return descending ? -order : order;
+      });
+    }
+    final List<Map<String, Object?>> limitedRows =
+        limit > 0 && rows.length > limit ? rows.take(limit).toList() : rows;
+    return List<Map<String, Object?>>.unmodifiable(
+      limitedRows.map(
+        (Map<String, Object?> row) => Map<String, Object?>.unmodifiable(row),
+      ),
+    );
+  }
+
+  Object? _databaseSortValue(
+    Map<String, Object?> row,
+    String? alias,
+    String field,
+    String aggregate,
+  ) {
+    if (alias == null || alias.isEmpty) return row[field];
+    final Object? related = row[alias];
+    if (related is Map) return related[field];
+    if (related is! List) return null;
+    final List<Object?> values =
+        related
+            .whereType<Map<Object?, Object?>>()
+            .map((Map<Object?, Object?> item) => item[field])
+            .where((Object? value) => value != null)
+            .toList();
+    if (values.isEmpty) return null;
+    values.sort(_compareDatabaseValues);
+    return aggregate == 'max' ? values.last : values.first;
+  }
+
+  bool _matchesDatabaseQuery(
+    Map<String, Object?> row,
+    List<Map<String, Object?>> filters,
+    bool matchAny,
+  ) {
+    if (filters.isEmpty) return true;
+    if (matchAny) {
+      return filters.any((Map<String, Object?> filter) {
+        final String alias = filter['joinAlias']?.toString() ?? '';
+        final Object? related = alias.isEmpty ? null : row[alias];
+        if (alias.isEmpty) return _matchesDatabaseFilterValue(row, filter);
+        final Iterable<Object?> candidates =
+            related is List
+                ? related.isEmpty
+                    ? <Object?>[null]
+                    : related
+                : <Object?>[related];
+        return candidates.any(
+          (Object? candidate) => _matchesDatabaseFilterValue(candidate, filter),
+        );
+      });
+    }
+    final Map<String, List<Map<String, Object?>>> joinedGroups =
+        <String, List<Map<String, Object?>>>{};
+    for (final Map<String, Object?> filter in filters) {
+      final String alias = filter['joinAlias']?.toString() ?? '';
+      if (alias.isEmpty) {
+        if (!_matchesDatabaseFilterValue(row, filter)) return false;
+      } else {
+        (joinedGroups[alias] ??= <Map<String, Object?>>[]).add(filter);
+      }
+    }
+    for (final MapEntry<String, List<Map<String, Object?>>> group
+        in joinedGroups.entries) {
+      final Object? related = row[group.key];
+      final Iterable<Object?> candidates =
+          related is List
+              ? related.isEmpty
+                  ? <Object?>[null]
+                  : related
+              : <Object?>[related];
+      if (!candidates.any(
+        (Object? candidate) => group.value.every(
+          (Map<String, Object?> filter) =>
+              _matchesDatabaseFilterValue(candidate, filter),
         ),
-      );
+      )) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  bool _matchesDatabaseFilterValue(
+    Object? record,
+    Map<String, Object?> filter,
+  ) {
+    final Map<Object?, Object?>? related =
+        record is Map ? Map<Object?, Object?>.from(record) : null;
+    final Object? actual =
+        related == null ? null : related[filter['field']?.toString() ?? ''];
+    final String operator = filter['operator']?.toString() ?? 'equals';
+    final String type = filter['type']?.toString() ?? 'string';
+    final Object? expected = _databaseFilterValue(filter['value'], type);
+    final bool orderedComparable =
+        !<String>{'boolean', 'json'}.contains(type) &&
+        (!<String>{'integer', 'number'}.contains(type) ||
+            (actual is num && expected is num));
+    switch (operator) {
+      case 'notEquals':
+        return !_databaseValuesEqual(actual, expected);
+      case 'contains':
+        if (actual is String)
+          return actual.contains(expected?.toString() ?? '');
+        if (actual is Iterable) {
+          return actual.any(
+            (Object? item) => _databaseValuesEqual(item, expected),
+          );
+        }
+        if (actual is Map) return actual.containsKey(expected);
+        return false;
+      case 'greaterThan':
+        return orderedComparable &&
+            actual != null &&
+            expected != null &&
+            _compareDatabaseValues(actual, expected) > 0;
+      case 'greaterThanOrEqual':
+        return orderedComparable &&
+            actual != null &&
+            expected != null &&
+            _compareDatabaseValues(actual, expected) >= 0;
+      case 'lessThan':
+        return orderedComparable &&
+            actual != null &&
+            expected != null &&
+            _compareDatabaseValues(actual, expected) < 0;
+      case 'lessThanOrEqual':
+        return orderedComparable &&
+            actual != null &&
+            expected != null &&
+            _compareDatabaseValues(actual, expected) <= 0;
+      case 'isNull':
+        return actual == null;
+      case 'isNotNull':
+        return actual != null;
+      default:
+        return _databaseValuesEqual(actual, expected);
+    }
+  }
+
+  Object? _databaseFilterValue(Object? raw, String type) {
+    if (raw is! String) return raw;
+    switch (type) {
+      case 'integer':
+        return int.tryParse(raw) ?? raw;
+      case 'number':
+        return num.tryParse(raw) ?? raw;
+      case 'boolean':
+        if (raw.toLowerCase() == 'true') return true;
+        if (raw.toLowerCase() == 'false') return false;
+        return raw;
+      case 'json':
+        try {
+          return jsonDecode(raw);
+        } on FormatException {
+          return raw;
+        }
+      default:
+        return raw;
+    }
+  }
+
+  int _compareDatabaseValues(Object? left, Object? right) {
+    if (left == null) return right == null ? 0 : -1;
+    if (right == null) return 1;
+    if (left is num && right is num) return left.compareTo(right);
+    return left.toString().compareTo(right.toString());
+  }
+
+  bool _databaseValuesEqual(Object? left, Object? right) {
+    if (left is Map && right is Map || left is List && right is List) {
+      return jsonEncode(left) == jsonEncode(right);
+    }
+    return left == right;
+  }
 
   bool deleteDatabaseRecord(String collectionId, Object? id) {
     final List<Map<String, Object?>>? rows = _previewDatabase[collectionId];
@@ -454,7 +887,10 @@ class EditorController extends ChangeNotifier {
     if (rows == null || recordId == null) return false;
     final int before = rows.length;
     rows.removeWhere((Map<String, Object?> row) => row['_id'] == recordId);
-    if (rows.length != before) notifyListeners();
+    if (rows.length != before) {
+      _runtimeRevision++;
+      notifyListeners();
+    }
     return rows.length != before;
   }
 
@@ -723,205 +1159,11 @@ class EditorController extends ChangeNotifier {
       }
       if (componentGroup == null) return;
     }
-    final Map<String, Object?> properties = switch (type) {
-      'text' => <String, Object?>{
-        'text': 'New text',
-        'fontSize': 18.0,
-        'fontWeight': 'regular',
-        'color': 0xFF303644,
-      },
-      'button' => <String, Object?>{'label': 'Button', 'style': 'filled'},
-      'container' => <String, Object?>{
-        'width': 220.0,
-        'height': 100.0,
-        'padding': 12.0,
-        'backgroundColor': 0xFFF1EFF8,
-        'borderRadius': 12.0,
-      },
-      'row' => <String, Object?>{
-        'mainAxisAlignment': 'start',
-        'crossAxisAlignment': 'center',
-      },
-      'expanded' => <String, Object?>{'flex': 1},
-      'safeArea' => <String, Object?>{
-        'top': true,
-        'bottom': true,
-        'left': true,
-        'right': true,
-        'minimum': 0.0,
-      },
-      'column' => <String, Object?>{
-        'mainAxisAlignment': 'start',
-        'crossAxisAlignment': 'start',
-      },
-      'stack' => <String, Object?>{
-        'width': 260.0,
-        'height': 160.0,
-        'alignment': 'topLeft',
-        'fit': 'loose',
-      },
-      'listView' => <String, Object?>{
-        'width': 300.0,
-        'height': 220.0,
-        'scrollDirection': 'vertical',
-        'itemSpacing': 8.0,
-      },
-      'gridView' => <String, Object?>{
-        'width': 300.0,
-        'height': 220.0,
-        'crossAxisCount': 2,
-        'itemSpacing': 8.0,
-      },
-      'pageView' => <String, Object?>{'width': 300.0, 'height': 220.0},
-      'swipeableStack' => <String, Object?>{
-        'width': 300.0,
-        'height': 220.0,
-        'visibleCount': 3,
-        'loop': false,
-      },
-      'card' => <String, Object?>{
-        'width': 240.0,
-        'height': 140.0,
-        'padding': 12.0,
-        'backgroundColor': 0xFFFFFFFF,
-        'borderRadius': 12.0,
-        'elevation': 2.0,
-      },
-      'padding' => <String, Object?>{'padding': 16.0},
-      'image' => <String, Object?>{
-        'source': '',
-        'width': 180.0,
-        'height': 120.0,
-        'fit': 'cover',
-      },
-      'icon' => <String, Object?>{
-        'iconName': 'star',
-        'size': 32.0,
-        'color': 0xFF6750A4,
-      },
-      'divider' => <String, Object?>{
-        'thickness': 1.0,
-        'height': 24.0,
-        'indent': 0.0,
-        'endIndent': 0.0,
-        'color': 0xFFB8BEC9,
-      },
-      'verticalDivider' => <String, Object?>{
-        'thickness': 1.0,
-        'width': 24.0,
-        'height': 48.0,
-        'indent': 0.0,
-        'endIndent': 0.0,
-        'color': 0xFFB8BEC9,
-      },
-      'textField' => <String, Object?>{
-        'hintText': 'Enter text',
-        'label': 'Text field',
-        'initialValue': '',
-        'width': 240.0,
-      },
-      'checkbox' => <String, Object?>{
-        'label': 'Checkbox',
-        'value': false,
-        'activeColor': 0xFF6750A4,
-      },
-      'switch' => <String, Object?>{
-        'label': 'Switch',
-        'value': false,
-        'activeColor': 0xFF6750A4,
-      },
-      'signature' => <String, Object?>{
-        'width': 280.0,
-        'height': 160.0,
-        'strokeWidth': 2.0,
-        'penColor': 0xFF20242C,
-        'backgroundColor': 0xFFFFFFFF,
-      },
-      'appBar' => <String, Object?>{
-        'title': 'App Bar',
-        'backgroundColor': 0xFF6750A4,
-        'foregroundColor': 0xFFFFFFFF,
-        'elevation': 2.0,
-      },
-      'floatingActionButton' => <String, Object?>{
-        'iconName': 'add',
-        'backgroundColor': 0xFF6750A4,
-        'foregroundColor': 0xFFFFFFFF,
-      },
-      'extendedFloatingActionButton' => <String, Object?>{
-        'label': 'Create',
-        'iconName': 'add',
-        'backgroundColor': 0xFF6750A4,
-        'foregroundColor': 0xFFFFFFFF,
-      },
-      'iconButton' => <String, Object?>{
-        'iconName': 'favorite',
-        'tooltip': 'Favorite',
-        'style': 'standard',
-      },
-      'segmentedButton' => <String, Object?>{
-        'options': 'Day,Week,Month',
-        'selectedIndex': 0,
-        'selectedOptions': 'Day',
-        'multiSelect': false,
-      },
-      'badge' => <String, Object?>{'label': '3', 'iconName': 'notifications'},
-      'linearProgressIndicator' => <String, Object?>{
-        'value': 0.65,
-        'minHeight': 4.0,
-      },
-      'snackBar' => <String, Object?>{
-        'message': 'File saved',
-        'actionLabel': 'Undo',
-      },
-      'alertDialog' => <String, Object?>{
-        'title': 'Confirm action',
-        'message': 'Are you sure you want to continue?',
-        'confirmLabel': 'Continue',
-        'cancelLabel': 'Cancel',
-      },
-      'bottomSheet' => <String, Object?>{
-        'title': 'More options',
-        'message': 'Supplementary content goes here.',
-      },
-      'listTile' => <String, Object?>{
-        'title': 'List item',
-        'subtitle': 'Supporting text',
-        'leadingIcon': 'person',
-        'trailingIcon': 'arrowForward',
-      },
-      'bottomAppBar' => <String, Object?>{'label': 'Bottom app bar'},
-      'navigationBar' => <String, Object?>{
-        'destinations': 'Home,Search,Settings',
-        'selectedIndex': 0,
-      },
-      'navigationDrawer' => <String, Object?>{
-        'destinations': 'Home,Search,Settings',
-        'selectedIndex': 0,
-      },
-      'navigationRail' => <String, Object?>{
-        'destinations': 'Home,Search,Settings',
-        'selectedIndex': 0,
-      },
-      'tabBar' => <String, Object?>{'tabs': 'Overview,Details,Reviews'},
-      'chip' => <String, Object?>{'label': 'Filter'},
-      'datePicker' => <String, Object?>{'label': 'Select date'},
-      'menu' => <String, Object?>{
-        'label': 'Open menu',
-        'options': 'Edit,Copy,Delete',
-      },
-      'radio' => <String, Object?>{
-        'options': 'Option one,Option two',
-        'selectedOption': 'Option one',
-      },
-      'slider' => <String, Object?>{'min': 0.0, 'max': 100.0, 'value': 50.0},
-      'timePicker' => <String, Object?>{'label': 'Select time'},
-      'componentGroup' => <String, Object?>{
-        'groupId': componentGroup!.id,
-        'groupName': componentGroup.name,
-      },
-      _ => <String, Object?>{},
-    };
+    final Map<String, Object?> properties = defaultBuilderWidgetProperties(
+      type,
+      componentGroupId: componentGroup?.id,
+      componentGroupName: componentGroup?.name,
+    );
     if (properties.isEmpty) return;
 
     BuilderNode? parent;
@@ -934,6 +1176,7 @@ class EditorController extends ChangeNotifier {
           'bottomSheet',
           'navigationBar',
           'navigationDrawer',
+          'navigationRail',
         }.contains(type)) {
       parent = _firstScaffold() ?? _insertionParent();
     } else if (targetId == null) {
@@ -1070,6 +1313,7 @@ class EditorController extends ChangeNotifier {
 
   void undo() {
     if (_undoStack.isEmpty) return;
+    _clearEditMerge();
     _redoStack.add(_document);
     _document = _undoStack.removeLast();
     _documentRevision++;
@@ -1082,6 +1326,7 @@ class EditorController extends ChangeNotifier {
 
   void redo() {
     if (_redoStack.isEmpty) return;
+    _clearEditMerge();
     _undoStack.add(_document);
     _document = _redoStack.removeLast();
     _documentRevision++;
@@ -1093,6 +1338,8 @@ class EditorController extends ChangeNotifier {
   }
 
   void open(BuilderDocument document, String path, {bool isDirty = false}) {
+    _clearEditMerge();
+    _copiedNode = null;
     _documentSessionId++;
     _documentRevision++;
     _document = document;
@@ -1111,6 +1358,8 @@ class EditorController extends ChangeNotifier {
   }
 
   void createNew() {
+    _clearEditMerge();
+    _copiedNode = null;
     _documentSessionId++;
     _documentRevision++;
     _document = BuilderDocument.sample();
@@ -1141,9 +1390,23 @@ class EditorController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void _commit(BuilderDocument next, {bool resetDatabase = false}) {
-    _undoStack.add(_document);
-    if (_undoStack.length > 100) _undoStack.removeAt(0);
+  void _commit(
+    BuilderDocument next, {
+    bool resetDatabase = false,
+    String? historyKey,
+  }) {
+    final DateTime now = DateTime.now();
+    final bool mergeEdit =
+        historyKey != null &&
+        historyKey == _lastEditKey &&
+        _lastEditAt != null &&
+        now.difference(_lastEditAt!) <= _editMergeWindow;
+    if (!mergeEdit) {
+      _undoStack.add(_document);
+      if (_undoStack.length > 100) _undoStack.removeAt(0);
+    }
+    _lastEditKey = historyKey;
+    _lastEditAt = historyKey == null ? null : now;
     _redoStack.clear();
     _document = next;
     _documentRevision++;
@@ -1151,6 +1414,11 @@ class EditorController extends ChangeNotifier {
     if (resetDatabase) _resetPreviewDatabase();
     _isDirty = true;
     notifyListeners();
+  }
+
+  void _clearEditMerge() {
+    _lastEditAt = null;
+    _lastEditKey = null;
   }
 
   BuilderNode? _insertionParent() {

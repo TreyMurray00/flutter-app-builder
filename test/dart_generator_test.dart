@@ -115,6 +115,34 @@ void main() {
     expect(source, contains('Navigator.of(context).pushNamed("/settings")'));
   });
 
+  test('places navigation rails beside the scaffold body', () {
+    final BuilderDocument sample = BuilderDocument.sample();
+    final BuilderNode navigationRail = BuilderNode(
+      id: 'navigation_rail',
+      type: 'navigationRail',
+      properties: const <String, Object?>{
+        'destinations': 'Home,Search',
+        'selectedIndex': 0,
+      },
+      children: const <BuilderNode>[],
+    );
+    final BuilderDocument document = sample.copyWith(
+      root: sample.root.copyWith(
+        children: <BuilderNode>[...sample.root.children, navigationRail],
+      ),
+    );
+
+    final String source = DartGenerator().generate(document);
+
+    expect(
+      source,
+      contains(
+        'Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: <Widget>[NavigationRail(',
+      ),
+    );
+    expect(source, contains('Expanded(child: Column('));
+  });
+
   test('generates runnable button action sequences', () {
     final BuilderDocument sample = BuilderDocument.sample();
     final BuilderNode button = BuilderNode(
